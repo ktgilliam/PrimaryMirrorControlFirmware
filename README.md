@@ -48,15 +48,25 @@ Stop() – Immediately stops all motion
 ## Stepper Motor Control
 The CNC shield provides the hardware needed to control the stepper motors.  The drivers are the step/direction type, with micro stepping built in.  The shield has jumpers to allow the micro stepping level to be set.  The DRV8825 has up to 1/32 micro stepping built in.  The step and direction pins for each axis are as follows:
 Function	Pin
+
 X-Direction	5
+
 X-Step	2
+
 X-Limit	9
+
 Y-Direction	6
+
 Y-Step	3
+
 Y-Limit	10
+
 Z-Direction	7
+
 Z-Step	4
+
 Z-Limit	11
+
 Enable	8
 
 Each motor should be managed using the AccelStepper() library.  This library has the ability to perform coordinated motion and can manage multiple motors simultaneously.  See the MultiStepper example code.   As the name implies, Acceleration limits can be used to manage the acceleration and eliminate missed steps due to too-fast acceleration towards high speeds.    Another alternate library is the TeensyStep, ( https://luni64.github.io/TeensyStep/  )which is also an advanced library for controlling multiple motors simultaneously.  However, it may not be available for the Teensy 4.1.
