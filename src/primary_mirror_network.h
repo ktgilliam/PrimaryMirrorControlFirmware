@@ -2,7 +2,7 @@
 #define PRIMARY_MIRROR_NETWORK_H
 
 
-// TBD 
+bool networkInit();
 
 
 #endif

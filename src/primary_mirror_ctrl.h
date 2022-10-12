@@ -25,15 +25,19 @@ Stop() – Immediately stops all motion
 
 #include <iostream>
 
-void moveAbsolute(int v, int x, int y);
-void moveRelative(int v, int x, int y);
-void moveRawAbsolute(int v, int x, int y);
-void moveRawRelative(int v, int x, int y);
+void moveAbsolute(int v, int x, int y, int z);
+void moveRelative(int v, int x, int y, int z);
+void moveRawAbsolute(int v, int x, int y, int z);
+void moveRawRelative(int v, int x, int y, int z);
 
 void home(int v);
 void fanSpeed(int s);
 uint8_t getStatus();
 void getPositions();
 void stop();
+
+void parse_command();
+
+void jogMirror();
 
 #endif

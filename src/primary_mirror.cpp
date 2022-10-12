@@ -1,7 +1,8 @@
-#include <Arduino.h>
-#include <AccelStepper.h>
-#include <MultiStepper.h>
 #include "primary_mirror_global.h"
+#include "primary_mirror_ctrl.h"
+#include "primary_mirror_network.h"
+
+// Parsing of JSON style command done in network file, for now.
 
 /*
 Features: 
@@ -20,24 +21,29 @@ void setup() {
 
   Serial.println("Setup Start.");
 
-  tip.setEnablePin(ENABLE_PIN);
-  tip.setPinsInverted(false, false, true);
+  tip.setMaxSpeed(1200.0); // Steps per second
+  tip.setAcceleration(100.0); // Steps per second per second
+  pinMode(X_LIM, INPUT_PULLUP);
 
-  tip.setMaxSpeed(200.0); // Steps per second
-  tip.setAcceleration(50.0); // Steps per second per second
-
-  tilt.setMaxSpeed(200.0);
-  tilt.setAcceleration(100.0);
+  tilt.setMaxSpeed(1200.0);
+  tilt.setAcceleration(200.0);
+  pinMode(Y_LIM, INPUT_PULLUP);
 
   focus.setMaxSpeed(200.0);
   focus.setAcceleration(100.0);
+  pinMode(Z_LIM, INPUT_PULLUP);
 
-  // Set enable pin, diable drivers
- // pinMode(ENABLE_PIN, OUTPUT);
-  //digitalWrite(ENABLE_PIN, LOW);
+  //Set enable pin, diable drivers
+  pinMode(ENABLE_PIN, OUTPUT);
+  //Set high to disable drivers 
+  digitalWrite(ENABLE_PIN, HIGH);
+
+  // Joystick Jogging Enable
+  //pinMode(VRx, INPUT);
+  //pinMode(VRy, INPUT);
+  pinMode(SW, INPUT_PULLUP); 
 
   Serial.println("Setup complete.");
-
 }
 
 
@@ -46,10 +52,24 @@ void setup() {
 
 void loop() {
 
- //Serial.println("running motor.");
+  static int indx=0;
 
-  //digitalWrite(ENABLE_PIN, HIGH);
+if (indx == 0) {
+  jogMirror();
+  //home(200);
+}
 
-  tip.runSpeed();
-    
+/*
+  if (tilt.distanceToGo() == 0)
+    tilt.moveTo(-tilt.currentPosition());
+
+  tilt.run();
+
+
+  if(!(indx%10000))
+  {
+    Serial.println(tilt.currentPosition());
+  }
+*/
+  indx++;  
 }
