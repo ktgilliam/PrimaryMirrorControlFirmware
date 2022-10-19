@@ -1,3 +1,26 @@
+/*******************************************************************************
+Copyright 2022
+Steward Observatory Engineering & Technical Services, University of Arizona
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or any later version.
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+You should have received a copy of the GNU General Public License along with
+this program. If not, see <https://www.gnu.org/licenses/>.
+*******************************************************************************/
+
+/**
+@brief LFAST prototype Primary Mirror Control Interface firmware
+@author Nestor Garcia
+@date October 17, 2022
+@file primary_mirror.cpp
+
+This file contains the firmware code for the LFAST Prototype Primary 
+Mirror Control interface. 
+*/
+
 #include "primary_mirror_global.h"
 #include "primary_mirror_ctrl.h"
 #include "primary_mirror_network.h"
@@ -7,6 +30,19 @@
 /*
 Features: 
 Manual Control: Joystick, Arrow Keys
+
+To Do:
+What are desired max speeds of Stepper Motors?
+
+Network Setup
+  - JSON Style command parsing
+
+Threading
+  - 'TeensyThreads.h'
+  - Activate function as thread to allow other function to take over if needed
+
+System Recovery
+  - Remember positions of stepepr motors in case of ungraceful shutdown. (EEPROM)
 */
 
 // Figure out appropriate pin outs
@@ -17,38 +53,33 @@ AccelStepper focus(AccelStepper::DRIVER, Z_STEP, Z_DIR);
 
 void setup() {
   Serial.begin(9600);
-  delay(3000);
 
-  Serial.println("Setup Start.");
-
-  tip.setMaxSpeed(1200.0); // Steps per second
+  tip.setMaxSpeed(800.0); // Steps per second
   tip.setAcceleration(100.0); // Steps per second per second
   pinMode(X_LIM, INPUT_PULLUP);
 
-  tilt.setMaxSpeed(1200.0);
-  tilt.setAcceleration(200.0);
+  tilt.setMaxSpeed(800.0);
+  tilt.setAcceleration(100.0);
   pinMode(Y_LIM, INPUT_PULLUP);
 
-  focus.setMaxSpeed(200.0);
+  focus.setMaxSpeed(800.0);
   focus.setAcceleration(100.0);
   pinMode(Z_LIM, INPUT_PULLUP);
 
-  //Set enable pin, diable drivers
+  //Stepper enable pin, high to diable drivers
   pinMode(ENABLE_PIN, OUTPUT);
-  //Set high to disable drivers 
   digitalWrite(ENABLE_PIN, HIGH);
 
   // Joystick Jogging Enable
-  //pinMode(VRx, INPUT);
-  //pinMode(VRy, INPUT);
   pinMode(SW, INPUT_PULLUP); 
 
-  Serial.println("Setup complete.");
+  if(!networkInit()) {
+    Serial.println("Setup Failed.");
+  }
+  else {
+    Serial.println("Setup Complete.");
+  }
 }
-
-
-
-
 
 void loop() {
 
@@ -56,18 +87,15 @@ void loop() {
 
 if (indx == 0) {
   jogMirror();
-  //home(200);
 }
 
 /*
-  if (tilt.distanceToGo() == 0)
+  if (tilt.distanceToGo() == 0) {
     tilt.moveTo(-tilt.currentPosition());
-
+  }
   tilt.run();
 
-
-  if(!(indx%10000))
-  {
+  if(!(indx%10000)) {
     Serial.println(tilt.currentPosition());
   }
 */
