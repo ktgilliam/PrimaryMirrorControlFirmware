@@ -23,7 +23,9 @@ Mirror Control interface.
 
 #include "primary_mirror_global.h"
 #include "primary_mirror_ctrl.h"
-#include "primary_mirror_network.h"
+//#include "primary_mirror_network.h"
+
+
 
 // Parsing of JSON style command done in network file, for now.
 
@@ -43,61 +45,90 @@ Threading
 
 System Recovery
   - Remember positions of stepepr motors in case of ungraceful shutdown. (EEPROM)
+
+fanSpeed Control function 
 */
 
 // Figure out appropriate pin outs
 //AccelStepper name(mode, step_pin, direction_pin)
-AccelStepper tip(AccelStepper::DRIVER, X_STEP, X_DIR);
-AccelStepper tilt(AccelStepper::DRIVER, Y_STEP, Y_DIR);
-AccelStepper focus(AccelStepper::DRIVER, Z_STEP, Z_DIR);
+AccelStepper A(AccelStepper::DRIVER, A_STEP, A_DIR);
+AccelStepper B(AccelStepper::DRIVER, B_STEP, B_DIR);
+AccelStepper C(AccelStepper::DRIVER, C_STEP, C_DIR);
+
+LFAST::TcpCommsService *commsService;
+
+byte myIP[] IPAdd;
+unsigned int mPort = PORT;
+
 
 void setup() {
   Serial.begin(9600);
 
-  tip.setMaxSpeed(800.0); // Steps per second
-  tip.setAcceleration(100.0); // Steps per second per second
-  pinMode(X_LIM, INPUT_PULLUP);
+  // Initialize motors + limit switches
+  A.setMaxSpeed(800.0); // Steps per second
+  A.setAcceleration(100.0); // Steps per second per second
+  pinMode(A_LIM, INPUT_PULLUP);
 
-  tilt.setMaxSpeed(800.0);
-  tilt.setAcceleration(100.0);
-  pinMode(Y_LIM, INPUT_PULLUP);
+  B.setMaxSpeed(800.0);
+  B.setAcceleration(100.0);
+  pinMode(B_LIM, INPUT_PULLUP);
 
-  focus.setMaxSpeed(800.0);
-  focus.setAcceleration(100.0);
-  pinMode(Z_LIM, INPUT_PULLUP);
+  C.setMaxSpeed(800.0);
+  C.setAcceleration(100.0);
+  pinMode(C_LIM, INPUT_PULLUP);
 
-  //Stepper enable pin, high to diable drivers
-  pinMode(ENABLE_PIN, OUTPUT);
-  digitalWrite(ENABLE_PIN, HIGH);
+  //Global stepper enable pin, high to diable drivers
+  pinMode(STEP_ENABLE_PIN, OUTPUT);
+  digitalWrite(STEP_ENABLE_PIN, HIGH);
 
   // Joystick Jogging Enable
   pinMode(SW, INPUT_PULLUP); 
 
-  if(!networkInit()) {
-    Serial.println("Setup Failed.");
-  }
-  else {
-    Serial.println("Setup Complete.");
-  }
+  // Fan PWM Enable
+
+
+  /*
+  commsService = new LFAST::EthernetCommsService(myIP, mPort);
+  if (!commsService->Status()) {
+        TEST_SERIAL.println("Device Setup Failed.");
+        while (true)
+        {
+            ;
+            ;
+        }
+    }
+
+  commsService->registerMessageHandler<double>("FindHome", home);
+  commsService->registerMessageHandler<double>("SetVelocity", changeVel);
+  commsService->registerMessageHandler<double>("SetTip", changeTip);
+  commsService->registerMessageHandler<double>("SetTilt", changeTilt);
+  commsService->registerMessageHandler<double>("GetStatus", getStatus);
+  commsService->registerMessageHandler<double>("GetPositions", getPositions);
+  commsService->registerMessageHandler<double>("Jog", jogMirror);
+  commsService->registerMessageHandler<double>("Stop", stop);
+  commsService->registerMessageHandler<unsigned int>("SetFanSpeed", fanSpeed);
+  */
 }
+
 
 void loop() {
 
-  static int indx=0;
+  static int indx = 0;
 
-if (indx == 0) {
-  jogMirror();
-}
+  /*
+  commsService->checkForNewClients();
+  commsService->checkForNewClientData();
+  commsService->processClientData();
+  commsService->stopDisconnectedClients();
+  */
 
-/*
-  if (tilt.distanceToGo() == 0) {
-    tilt.moveTo(-tilt.currentPosition());
+  if (!(indx%1000)) {
+    Serial.println("Executing.");
+    home(100);
+    //moveRawAbsolute(200, 1, 0);
   }
-  tilt.run();
-
-  if(!(indx%10000)) {
-    Serial.println(tilt.currentPosition());
-  }
-*/
+  
   indx++;  
 }
+
+

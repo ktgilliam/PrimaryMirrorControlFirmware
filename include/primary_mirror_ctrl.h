@@ -39,17 +39,46 @@ Stop() – Immediately stops all motion
 
 #include <iostream>
 
-void moveAbsolute(int v, int x, int y, int z);
-void moveRelative(int v, int x, int y, int z);
-void moveRawAbsolute(int v, int x, int y, int z);
-void moveRawRelative(int v, int x, int y, int z);
+void handshake(unsigned int val);
 
-void home(int v);
-void fanSpeed(int s);
-uint8_t getStatus();
-uint8_t getPositions();
-void stop();
-void parse_command();
-void jogMirror();
+void changeVel(double targetVel);
+void changeTip(double targetTip);
+void changeTilt(double targetTilt);
+void moveMirror(uint8_t axis, double val);
+
+void moveAbsolute(double v, double tip, double tilt);
+void moveRelative(double v, double tip, double tilt);
+void moveRawAbsolute(double v, double tip, double tilt);
+void moveRawRelative(double v, double tip, double tilt);
+void moveFocus(double v, double z);
+void moveFocusRaw(double v, double z);
+//void focusAbsolute(double v, double z);
+//void focusRawAbsolute(double v, double z);
+
+void home(double v);
+void getStatus(double lst);
+void getPositions(double lst);
+void stop(double lst);
+void jogMirror(double lst);
+void fanSpeed(unsigned int val);
+
+
+namespace LFAST
+{
+    enum PMC
+    {
+        VELOCITY = 0,
+        TIP = 1,
+        TILT = 2,
+        FOCUS = 4,
+        TYPE = 5,
+        MOVEABSOLUTE = 5,
+        MOVERELATIVE = 6,
+        MOVERAWABSOLUTE = 7, 
+        MOVERAWRELATIVE = 8,
+        MOVEFOCUS = 9,
+        MOVEFOCUSRAW = 10
+    };
+}
 
 #endif
