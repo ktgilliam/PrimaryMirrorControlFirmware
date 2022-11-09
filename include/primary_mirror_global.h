@@ -27,11 +27,14 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #include <TerminalInterface.h>
 #include <cmath>
 #include <debug.h>
+#include <math.h>
+#include <heartbeat.h>
+#include <string>
 
 #ifndef PRIMARY_MIRROR_GLOBAL_H
 #define PRIMARY_MIRROR_GLOBAL_H
 
-#define PRIMARY_MIRROR_CONTROL_LABEL "LFAST PRIMARY MIRROR CONTROL"
+#define PMC_LABEL "LFAST PRIMARY MIRROR CONTROL"
 
 //#define TEENSY41
 
@@ -55,11 +58,13 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #define VRy 39
 
 //Determine Network values
-#define MAC     { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED }
-#define IPAdd   {192, 168, 121, 177}
+#define MAC { 0x00, 0x50, 0xB6, 0xEA, 0x8F, 0x44 }
+#define IPAdd   { 169,254,178,142 }
+//#define MAC     { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED }
+//#define IPAdd   {192, 168, 121, 177}
 #define GATEWAY 0,0,0,0
 #define SUBNET  0,0,0,0
-#define PORT    4400
+#define PORT    1883//4400
 
 
 

@@ -39,29 +39,35 @@ Stop() – Immediately stops all motion
 
 #include <iostream>
 
+// Setup functions
+void hardware_setup();
+//void connectTerminalInterface(TerminalInterface* _cli);
 void handshake(unsigned int val);
 
+// PMC Command Processing functions
+void moveType(unsigned int type);
 void changeVel(double targetVel);
+void velUnits(unsigned int target);
 void changeTip(double targetTip);
 void changeTilt(double targetTilt);
+void changeFocus(double targetFocus);
 void moveMirror(uint8_t axis, double val);
 
+// PM Control functions
 void moveAbsolute(double v, double tip, double tilt);
 void moveRelative(double v, double tip, double tilt);
 void moveRawAbsolute(double v, double tip, double tilt);
 void moveRawRelative(double v, double tip, double tilt);
-void moveFocus(double v, double z);
-void moveFocusRaw(double v, double z);
+void focusRelative(double v, double z);
+void focusRelativeRaw(double v, double z);
 //void focusAbsolute(double v, double z);
 //void focusRawAbsolute(double v, double z);
-
 void home(double v);
 void getStatus(double lst);
 void getPositions(double lst);
 void stop(double lst);
 void jogMirror(double lst);
 void fanSpeed(unsigned int val);
-
 
 namespace LFAST
 {
@@ -70,14 +76,13 @@ namespace LFAST
         VELOCITY = 0,
         TIP = 1,
         TILT = 2,
-        FOCUS = 4,
-        TYPE = 5,
-        MOVEABSOLUTE = 5,
-        MOVERELATIVE = 6,
-        MOVERAWABSOLUTE = 7, 
-        MOVERAWRELATIVE = 8,
-        MOVEFOCUS = 9,
-        MOVEFOCUSRAW = 10
+        FOCUS = 3,
+        TYPE = 4,
+        UNITS = 5,
+        ABSOLUTE = 6,
+        RELATIVE = 7,
+        RADSEC = 8, 
+        STEPSEC = 9,
     };
 }
 

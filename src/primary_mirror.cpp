@@ -23,8 +23,6 @@ Mirror Control interface.
 
 #include "primary_mirror_global.h"
 #include "primary_mirror_ctrl.h"
-//#include "primary_mirror_network.h"
-
 
 
 // Parsing of JSON style command done in network file, for now.
@@ -49,46 +47,42 @@ System Recovery
 fanSpeed Control function 
 */
 
+void handshake(unsigned int val);
+
+/*
 // Figure out appropriate pin outs
 //AccelStepper name(mode, step_pin, direction_pin)
 AccelStepper A(AccelStepper::DRIVER, A_STEP, A_DIR);
 AccelStepper B(AccelStepper::DRIVER, B_STEP, B_DIR);
 AccelStepper C(AccelStepper::DRIVER, C_STEP, C_DIR);
+*/
 
 LFAST::TcpCommsService *commsService;
+//TerminalInterface *pmcIf;
 
 byte myIP[] IPAdd;
 unsigned int mPort = PORT;
 
 
-void setup() {
-  Serial.begin(9600);
+void thread_func(){
 
-  // Initialize motors + limit switches
-  A.setMaxSpeed(800.0); // Steps per second
-  A.setAcceleration(100.0); // Steps per second per second
-  pinMode(A_LIM, INPUT_PULLUP);
+  commsService->processClientData("PMCMessage");
 
-  B.setMaxSpeed(800.0);
-  B.setAcceleration(100.0);
-  pinMode(B_LIM, INPUT_PULLUP);
+}
 
-  C.setMaxSpeed(800.0);
-  C.setAcceleration(100.0);
-  pinMode(C_LIM, INPUT_PULLUP);
 
-  //Global stepper enable pin, high to diable drivers
-  pinMode(STEP_ENABLE_PIN, OUTPUT);
-  digitalWrite(STEP_ENABLE_PIN, HIGH);
+void setup() 
+{
+  Serial.begin(115200);
+  hardware_setup();
 
   // Joystick Jogging Enable
   pinMode(SW, INPUT_PULLUP); 
 
   // Fan PWM Enable
-
-
-  /*
-  commsService = new LFAST::EthernetCommsService(myIP, mPort);
+  
+  commsService = new LFAST::TcpCommsService(myIP);
+  commsService->initializeEnetIface(PORT); // initialize
   if (!commsService->Status()) {
         TEST_SERIAL.println("Device Setup Failed.");
         while (true)
@@ -96,39 +90,42 @@ void setup() {
             ;
             ;
         }
-    }
+  }
 
+  commsService->registerMessageHandler<unsigned int>("Handshake", handshake);
   commsService->registerMessageHandler<double>("FindHome", home);
+  commsService->registerMessageHandler<unsigned int>("MoveType", moveType);
   commsService->registerMessageHandler<double>("SetVelocity", changeVel);
+  commsService->registerMessageHandler<unsigned int>("VelUnits", velUnits); 
   commsService->registerMessageHandler<double>("SetTip", changeTip);
   commsService->registerMessageHandler<double>("SetTilt", changeTilt);
+  commsService->registerMessageHandler<double>("SetFocus", changeFocus);
   commsService->registerMessageHandler<double>("GetStatus", getStatus);
   commsService->registerMessageHandler<double>("GetPositions", getPositions);
   commsService->registerMessageHandler<double>("Jog", jogMirror);
   commsService->registerMessageHandler<double>("Stop", stop);
   commsService->registerMessageHandler<unsigned int>("SetFanSpeed", fanSpeed);
-  */
+
+  delay(500);
+
+  //initHeartbeat();
+  //resetHeartbeat();
+  //setHeartBeatPeriod(400000);
+
+  //pmcIf = new TerminalInterface(PMC_LABEL, &(TEST_SERIAL));
+  //connectTerminalInterface(pmcIf);
+  //pmcIf->addDebugMessage("Initialization complete");
 }
 
 
 void loop() {
-
-  static int indx = 0;
-
-  /*
-  commsService->checkForNewClients();
-  commsService->checkForNewClientData();
-  commsService->processClientData();
-  commsService->stopDisconnectedClients();
-  */
-
-  if (!(indx%1000)) {
-    Serial.println("Executing.");
-    home(100);
-    //moveRawAbsolute(200, 1, 0);
-  }
   
-  indx++;  
+  if (commsService->checkForNewClients()) {
+    if (commsService->checkForNewClientData()) {
+      commsService->processClientData("PMCMessage");
+    }
+    commsService->stopDisconnectedClients();
+  }
 }
 
-
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
