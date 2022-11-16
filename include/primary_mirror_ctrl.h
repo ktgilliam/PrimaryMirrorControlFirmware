@@ -41,6 +41,8 @@ Stop() – Immediately stops all motion
 
 // Setup functions
 void hardware_setup();
+void set_thread_ID(int commID, int ctrlID);
+int get_thread_ID(bool commID, bool ctrlID);
 //void connectTerminalInterface(TerminalInterface* _cli);
 void handshake(unsigned int val);
 

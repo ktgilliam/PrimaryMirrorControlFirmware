@@ -23,25 +23,28 @@ Implementation of Primary Mirror Control Functions.
 #include "primary_mirror_ctrl.h"
 #include "primary_mirror_global.h"
 #include <iostream>
-/*
-extern AccelStepper A;
-extern AccelStepper B;
-extern AccelStepper C;
-*/
+
 
 AccelStepper A(AccelStepper::DRIVER, A_STEP, A_DIR);
 AccelStepper B(AccelStepper::DRIVER, B_STEP, B_DIR);
 AccelStepper C(AccelStepper::DRIVER, C_STEP, C_DIR);
 extern LFAST::TcpCommsService *commsService;
 
-static double velVal = 0.0;
-static double tipVal = 0.0;
-static double tiltVal = 0.0;
-static double focusVal = 0.0;
+static double velVal        = 0.0;
+static double tipVal        = 0.0;
+static double tiltVal       = 0.0;
+static double focusVal      = 0.0;
+static int commthreadID     = 0;
+static int ctrlthreadID     = 0;
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////// Motion Control Functions  //////////////////////////////////////
+/////////////////////////////////////////                           //////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void hardware_setup()
 {
-
   // Initialize motors + limit switches
   A.setMaxSpeed(800.0); // Steps per second
   A.setAcceleration(100.0); // Steps per second per second
@@ -61,47 +64,44 @@ void hardware_setup()
 
 }
 
+void set_thread_ID(int commID, int ctrlID)  
+{
+    if (ctrlID == 0) 
+    {
+        commthreadID = commID;
+        //Serial.print("Comm thread ID set to: ");
+        //Serial.println(commthreadID);
+    }
+    else if (commID == 0) 
+    {
+        ctrlthreadID = ctrlID;
+        //Serial.print("Ctrl thread ID set to: ");
+        //Serial.println(ctrlthreadID);
+    }
+    else {
+        //Serial.println("Invalid thread ID."); 
+    }
+}
+int get_thread_ID(bool commID, bool ctrlID) {
+    if (ctrlID == 0) 
+    {
+        return(commthreadID);
+    }
+    else if (commID == 0) 
+    {
+        return(ctrlthreadID);
+    }
+    else {
+        //Serial.println("Invalid thread ID requested."); 
+        return(0);
+    }
+}
 /*
 void connectTerminalInterface(TerminalInterface *_cli)
 {
     cli = _cli;
-
 }
 */
-
-void moveMirror_thread(int move)
-{
-    LFAST::CommsMessage newMsg;
-
-    if (move == 1) {
-        newMsg.addKeyValuePair<std::string>("Adjusting absolute tip/tilt.", "$OK^");
-        moveAbsolute(velVal, tipVal, tiltVal);
-    }
-    else if (move == 2) {
-        newMsg.addKeyValuePair<std::string>("Adjusting relative tip/tilt.", "$OK^");
-        moveRelative(velVal, tipVal, tiltVal);
-    }
-    else if (move == 3) {
-        newMsg.addKeyValuePair<std::string>("Adjusting absolute tip/tilt.", "$OK^");
-        moveRawAbsolute(velVal, tipVal, tiltVal);
-    }
-    else if (move == 4) {
-        newMsg.addKeyValuePair<std::string>("Adjusting relative tip/tilt.", "$OK^");
-        moveRawRelative(velVal, tipVal, tiltVal);
-    }
-    else if (move == 5) {
-        newMsg.addKeyValuePair<std::string>("Adjusting focus.", "$OK^");
-        focusRelative(velVal, focusVal);
-    }
-    else if (move == 6) {
-        focusRelativeRaw(velVal, focusVal);
-    }
-    else { // Error
-        newMsg.addKeyValuePair<std::string>("Error: Incorrect thread type.", "$OK^");
-        Serial.println("Error: Incorrect move type in thread");
-    }
-}
-
 // Handshake function to confirm connection
 void handshake(unsigned int val) {
 
@@ -175,9 +175,8 @@ void changeFocus(double targetFocus)
 {
     moveMirror(LFAST::FOCUS, targetFocus);
 }
-
-void moveMirror(uint8_t axis, double val) {
-
+void moveMirror(uint8_t axis, double val) 
+{
     static bool velUpdated      = false;
     static bool typeUpdated     = false;
     static bool unitUpdated     = false;
@@ -216,7 +215,7 @@ void moveMirror(uint8_t axis, double val) {
         typeVal = val;
         typeUpdated = true;
     }
-
+    // tip/tild adustment control parsing
     if (velUpdated == true && unitUpdated == true && tipUpdated == true && tiltUpdated == true && typeUpdated == true){
 
         if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::RADSEC)) 
@@ -241,6 +240,7 @@ void moveMirror(uint8_t axis, double val) {
         typeUpdated = false;
         unitUpdated = false;
     }
+    // focus adjustment control parsing
     else if (focusUpdated == true && typeUpdated == true && velUpdated == true && unitUpdated == true) {
         if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::RADSEC) 
         {
@@ -258,8 +258,9 @@ void moveMirror(uint8_t axis, double val) {
 }
 
 // Move all actuators to home positions at velocity V 
-void home(double v) {
-
+void home(volatile double v) 
+{
+    digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Finding Home", "$OK^");
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
@@ -299,6 +300,7 @@ void home(double v) {
             C.runSpeed();
         }
     }
+    digitalWrite(STEP_ENABLE_PIN, HIGH);
     A.setCurrentPosition(0);
     B.setCurrentPosition(0);
     C.setCurrentPosition(0);
@@ -309,7 +311,7 @@ void home(double v) {
 void moveAbsolute(double v, double tip, double tilt) 
 {
     // Convert v (rad / second) to steps / second 
-    v = v * (200 / (2 * PI)); // 2pi rad = 200 steps
+    v = v * (100 / (PI)); // pi rad = 100 steps
     moveRawAbsolute(v, tip, tilt);
 }
 
@@ -319,8 +321,8 @@ void moveAbsolute(double v, double tip, double tilt)
 void moveRelative(double v, double tip, double tilt)
 { 
     // Convert v (rad / second) to steps / second 
-    v = v * (200 / (2 * PI)); // 2pi rad = 200 steps
-    moveRawRelative(v, tip, tilt);
+    v = (v * MIRROR_RADIUS) / (MICRO_M_PER_STEP); // angular_vel * mirror radius = linear vel 
+    moveRawRelative(v, tip, tilt);                // linear velocity / (1 step / 3 um) = steps / sec 
 }
 
 // Move each axis with velocity V to an absolute X,Y position with respect to “home”
@@ -328,6 +330,7 @@ void moveRelative(double v, double tip, double tilt)
 // Velocity input as steps / sec
 void moveRawAbsolute(double v, double tip, double tilt) 
 {
+    digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Absolute", "$OK^");
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
@@ -374,12 +377,14 @@ void moveRawAbsolute(double v, double tip, double tilt)
             C.runSpeed();
         }
     }
+    digitalWrite(STEP_ENABLE_PIN, HIGH);
 }
 
 // Move each axis with velocity V X,Y units from the current position In the above commands,
 // Velocity input as steps / sec
 void moveRawRelative(double v, double tip, double tilt)
 {
+    digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Relative", "$OK^");
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
@@ -449,19 +454,21 @@ void moveRawRelative(double v, double tip, double tilt)
             C.runSpeed();
         }
     }
+    digitalWrite(STEP_ENABLE_PIN, HIGH);
 }
 
 // Adjust focus position z(um) at velicity v(rad/sec)
 void focusRelative(double v, double z) 
 { 
     // Convert v (rad / second) to steps / second 
-    v = v * (200 / (2 * PI)); // 2pi rad = 200 steps
+    v = v * (100 / (PI)); // pi rad = 100 steps
     focusRelativeRaw(velVal, focusVal);
 }
 
 // Adjust focus position z(um) from current position at velicity v(steps/sec)
 void focusRelativeRaw(double v, double z) 
 {
+    digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Adjusting focus.", "$OK^");
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
@@ -492,6 +499,7 @@ void focusRelativeRaw(double v, double z)
             C.runSpeed();
         }
     }
+    digitalWrite(STEP_ENABLE_PIN, HIGH);
 }
 
 // Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving 
@@ -504,7 +512,6 @@ void getStatus(double lst)
     C_status = C.isRunning();
 
     LFAST::CommsMessage newMsg;
-
     newMsg.addKeyValuePair<bool>("ARunning?", A_status);
     newMsg.addKeyValuePair<bool>("BRunning?", B_status);
     newMsg.addKeyValuePair<bool>("CRunning?", C_status);
@@ -531,13 +538,20 @@ void getPositions(double lst)
 // Immediately stops all motion
 void stop(double lst) 
 {
-    LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<std::string>("Stopping", "$OK^");
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-
+    digitalWrite(STEP_ENABLE_PIN, HIGH);
+    int i = 1;
+    while ((ctrlthreadID - i) != commthreadID)     // Kill all running control threads
+    {
+        threads.kill(ctrlthreadID - i); 
+        i++;
+    }    
     A.stop();
     B.stop();
     C.stop();
+
+    LFAST::CommsMessage newMsg;
+    newMsg.addKeyValuePair<std::string>("Stopped", "$OK^");
+    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 }
 
 // Set the fan speed to a percentage S of full scale
@@ -546,6 +560,21 @@ void fanSpeed(unsigned int PWR)
 {
     analogWrite(FAN_CONTROL, PWR);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 //////////////////////////////////////////////////////////////////////////////////////////
                             /*Code Below is in work*/

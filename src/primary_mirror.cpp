@@ -34,8 +34,6 @@ Manual Control: Joystick, Arrow Keys
 To Do:
 What are desired max speeds of Stepper Motors?
 
-Network Setup
-  - JSON Style command parsing
 
 Threading
   - 'TeensyThreads.h'
@@ -49,35 +47,37 @@ fanSpeed Control function
 
 void handshake(unsigned int val);
 
-/*
-// Figure out appropriate pin outs
-//AccelStepper name(mode, step_pin, direction_pin)
-AccelStepper A(AccelStepper::DRIVER, A_STEP, A_DIR);
-AccelStepper B(AccelStepper::DRIVER, B_STEP, B_DIR);
-AccelStepper C(AccelStepper::DRIVER, C_STEP, C_DIR);
-*/
-
 LFAST::TcpCommsService *commsService;
-//TerminalInterface *pmcIf;
+TerminalInterface *pmcIf;
 
 byte myIP[] IPAdd;
 unsigned int mPort = PORT;
 
 
-void thread_func(){
-
+void control_thread() {
   commsService->processClientData("PMCMessage");
-
 }
+void comm_thread() {
 
+  while(1) 
+  {
+    if (commsService->checkForNewClients()) {
+      if (commsService->checkForNewClientData()) {
+        Serial.println("New data received.");
+        set_thread_ID(0, threads.addThread(control_thread));
+      }
+      commsService->stopDisconnectedClients();
+    }
+  }
+}
 
 void setup() 
 {
   Serial.begin(115200);
   hardware_setup();
 
-  // Joystick Jogging Enable
-  pinMode(SW, INPUT_PULLUP); 
+  // Joystick Jogging Enable: INW
+  //pinMode(SW, INPUT_PULLUP); 
 
   // Fan PWM Enable
   
@@ -108,24 +108,23 @@ void setup()
 
   delay(500);
 
-  //initHeartbeat();
-  //resetHeartbeat();
-  //setHeartBeatPeriod(400000);
+  threads.setDefaultStackSize(4096);
+  set_thread_ID(threads.addThread(comm_thread), 0);
 
-  //pmcIf = new TerminalInterface(PMC_LABEL, &(TEST_SERIAL));
-  //connectTerminalInterface(pmcIf);
-  //pmcIf->addDebugMessage("Initialization complete");
+/*
+  initHeartbeat();
+  resetHeartbeat();
+  setHeartBeatPeriod(400000);
+
+  pmcIf = new TerminalInterface(PMC_LABEL, &(TEST_SERIAL));
+  connectTerminalInterface(pmcIf);
+  pmcIf->addDebugMessage("Initialization complete");
+*/
 }
 
 
 void loop() {
-  
-  if (commsService->checkForNewClients()) {
-    if (commsService->checkForNewClientData()) {
-      commsService->processClientData("PMCMessage");
-    }
-    commsService->stopDisconnectedClients();
-  }
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
