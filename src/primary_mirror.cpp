@@ -108,6 +108,8 @@ void setup()
 
   delay(500);
 
+  load_current_positions();
+
   threads.setDefaultStackSize(4096);
   set_thread_ID(threads.addThread(comm_thread), 0);
 

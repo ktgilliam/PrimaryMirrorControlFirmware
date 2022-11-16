@@ -64,6 +64,7 @@ void hardware_setup()
 
 }
 
+
 void set_thread_ID(int commID, int ctrlID)  
 {
     if (ctrlID == 0) 
@@ -82,6 +83,8 @@ void set_thread_ID(int commID, int ctrlID)
         //Serial.println("Invalid thread ID."); 
     }
 }
+
+
 int get_thread_ID(bool commID, bool ctrlID) {
     if (ctrlID == 0) 
     {
@@ -119,6 +122,7 @@ void handshake(unsigned int val) {
     }
     return;
 }
+
 
 // Functions to update necessary control variables
 void moveType(unsigned int type) 
@@ -250,6 +254,14 @@ void moveMirror(uint8_t axis, double val)
         {
             focusRelativeRaw(velVal, focusVal);
         }
+        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::RADSEC) 
+        {
+            focusAbsolute(velVal, focusVal);
+        }
+        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::STEPSEC) 
+        {
+            focusRawAbsolute(velVal, focusVal);
+        }
         velUpdated = false;
         unitUpdated = false;
         focusUpdated = false;
@@ -257,7 +269,8 @@ void moveMirror(uint8_t axis, double val)
     }
 }
 
-// Move all actuators to home positions at velocity V 
+
+// Move all actuators to home positions at velocity V (steps/sec)
 void home(volatile double v) 
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
@@ -304,27 +317,18 @@ void home(volatile double v)
     A.setCurrentPosition(0);
     B.setCurrentPosition(0);
     C.setCurrentPosition(0);
+    save_current_positions();
 }
+
 
 // Move each axis with velocity V to an absolute X,Y position with respect to “home” 
 // Velocity input as rad/ sec, converted to steps / sec
 void moveAbsolute(double v, double tip, double tilt) 
 {
     // Convert v (rad / second) to steps / second 
-    v = v * (100 / (PI)); // pi rad = 100 steps
+    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel 
     moveRawAbsolute(v, tip, tilt);
 }
-
-// Move each axis with velocity V X,Y units from the current position In the above commands, 
-// V, X and Y are vectors of length 3. Velocity is in units of radians per second, X,Y are milliradians.
-// Velocity input as rad/ sec, converted to steps / sec
-void moveRelative(double v, double tip, double tilt)
-{ 
-    // Convert v (rad / second) to steps / second 
-    v = (v * MIRROR_RADIUS) / (MICRO_M_PER_STEP); // angular_vel * mirror radius = linear vel 
-    moveRawRelative(v, tip, tilt);                // linear velocity / (1 step / 3 um) = steps / sec 
-}
-
 // Move each axis with velocity V to an absolute X,Y position with respect to “home”
 // V, X and Y are vectors of length 3. Velocity is in units of steps per second, X,Y are steps.
 // Velocity input as steps / sec
@@ -335,15 +339,15 @@ void moveRawAbsolute(double v, double tip, double tilt)
     newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Absolute", "$OK^");
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
-    // Convert x/y inputs to absulute stepper positions relative to zero position
+   // Convert x/y inputs to absulute stepper positions relative to zero position (Produces results in mm)
     double Adistance = (281.3*sin(tip)) / cos(tip);
     double Bdistance = (0.004 * (60900.0*sin(tilt) - 35160.0*cos(tilt)*sin(tip))) / (cos(tip)*cos(tilt));
     double Cdistance = (-0.004 * (60900.0*sin(tilt) + 35160.0*cos(tilt)*sin(tip))) / (cos(tip)*cos(tilt));
 
-    // Convert Distance to steps. 3um per step??
-    int Asteps = Adistance / (3);
-    int Bsteps = Bdistance / (3);
-    int Csteps = Cdistance / (3);
+    // Convert Distance to steps (0.003mm per step??)
+    int Asteps = Adistance / (MM_PER_STEP);
+    int Bsteps = Bdistance / (MM_PER_STEP);
+    int Csteps = Cdistance / (MM_PER_STEP);
 
     // Set directions based on desired positions relative to current positions of steppers.
     if (A.currentPosition() > Asteps) {
@@ -367,7 +371,7 @@ void moveRawAbsolute(double v, double tip, double tilt)
 
     while ((A.currentPosition() != Asteps) || (B.currentPosition() != Bsteps) || (C.currentPosition() != Csteps)) {
 
-        if ((A.currentPosition() != Asteps)) {
+        if (A.currentPosition() != Asteps) {
             A.runSpeed();
         }
         if (B.currentPosition() != Bsteps) {
@@ -378,9 +382,20 @@ void moveRawAbsolute(double v, double tip, double tilt)
         }
     }
     digitalWrite(STEP_ENABLE_PIN, HIGH);
+    save_current_positions();
 }
 
-// Move each axis with velocity V X,Y units from the current position In the above commands,
+
+// Move each axis with velocity V X,Y units from the current position In the above commands, 
+// V, X and Y are vectors of length 3. Velocity is in units of radians per second, X,Y are milliradians.
+// Velocity input as rad/ sec, converted to steps / sec
+void moveRelative(double v, double tip, double tilt)
+{ 
+    // Convert v (rad / second) to steps / second 
+    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel 
+    moveRawRelative(v, tip, tilt);                // linear velocity / (1 step / 3 um) = steps / sec 
+}
+// Move each axis with velocity V X,Y units from the current position to achieve desired tip/tilt(radians) relative position
 // Velocity input as steps / sec
 void moveRawRelative(double v, double tip, double tilt)
 {
@@ -389,15 +404,15 @@ void moveRawRelative(double v, double tip, double tilt)
     newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Relative", "$OK^");
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
-    // Convert x/y inputs to absulute stepper positions relative to zero position
+    // Convert x/y inputs to absulute stepper positions relative to zero position (Produces results in mm)
     double Adistance = (281.3*sin(tip)) / cos(tip);
     double Bdistance = (0.004 * (60900.0*sin(tilt) - 35160.0*cos(tilt)*sin(tip))) / (cos(tip)*cos(tilt));
     double Cdistance = (-0.004 * (60900.0*sin(tilt) + 35160.0*cos(tilt)*sin(tip))) / (cos(tip)*cos(tilt));
 
-    // Convert Distance to steps 3um per step??
-    int Asteps = Adistance / (3);
-    int Bsteps = Bdistance / (3);
-    int Csteps = Cdistance / (3);
+    // Convert Distance to steps (MM_PER_STEP mm per step??)
+    int Asteps = Adistance / (MM_PER_STEP);
+    int Bsteps = Bdistance / (MM_PER_STEP);
+    int Csteps = Cdistance / (MM_PER_STEP);
 
     Serial.println(Asteps);
     Serial.println(Bsteps);
@@ -455,16 +470,17 @@ void moveRawRelative(double v, double tip, double tilt)
         }
     }
     digitalWrite(STEP_ENABLE_PIN, HIGH);
+    save_current_positions();
 }
+
 
 // Adjust focus position z(um) at velicity v(rad/sec)
 void focusRelative(double v, double z) 
 { 
     // Convert v (rad / second) to steps / second 
-    v = v * (100 / (PI)); // pi rad = 100 steps
+    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel 
     focusRelativeRaw(velVal, focusVal);
 }
-
 // Adjust focus position z(um) from current position at velicity v(steps/sec)
 void focusRelativeRaw(double v, double z) 
 {
@@ -500,7 +516,75 @@ void focusRelativeRaw(double v, double z)
         }
     }
     digitalWrite(STEP_ENABLE_PIN, HIGH);
+    save_current_positions();
 }
+
+
+// v input in (rad/sec), z input as um
+void focusAbsolute(double v, double z) 
+{
+    // Convert v (rad / second) to steps / second 
+    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel 
+    focusRawAbsolute(v, z);
+}
+
+
+// v input in (steps/sec), z input as um
+void focusRawAbsolute(double v, double z) 
+{
+    digitalWrite(STEP_ENABLE_PIN, LOW);
+    // get z position of actuators in steps (x, y positions are fixed)
+    int zA = A.currentPosition();
+    int zB = B.currentPosition();
+    int zC = C.currentPosition();
+
+    // convert position in steps to microns?
+    // MM_PER_STEP microns / step
+    zA = (zA * MM_PER_STEP);
+    zB = (zB * MM_PER_STEP);
+    zC = (zC * MM_PER_STEP); 
+
+    // Calculate z postion of focus given three actuator points.
+    // Derived from the position of actuators at any givem moment
+    // Equation produces position in mm
+    int zf = ((((1376420)*(zB - 2*zA + zC)) / (4129260)) + zA) * 1000; // *1000 to convert mm to um
+
+    // Adjust velocity ( + for up z movement, - for down z movement)
+    if (zf < z) 
+    {
+        v = -abs(v);
+    }
+    else
+    {
+        v = abs(v);
+    }
+
+    // Difference between desired position and actual position to determine movement amount
+    int move = z - zf;
+    // convert micron movement back to steps
+    move = move / MICRON_PER_STEP; // microns * (1 step / 3 microns)
+
+    // Equally adust desired actuator movement given desired focus position  
+    A.moveTo(A.currentPosition() + move);
+    B.moveTo(B.currentPosition() + move);
+    C.moveTo(C.currentPosition() + move);
+
+    while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0)) {
+
+        if (A.distanceToGo() != 0) {
+            A.runSpeed();
+        }
+        if (B.distanceToGo() != 0) {
+            B.runSpeed();
+        }
+        if (C.distanceToGo() != 0) {
+            C.runSpeed();
+        }
+    }
+    digitalWrite(STEP_ENABLE_PIN, HIGH);
+    save_current_positions();
+}
+
 
 // Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving 
 void getStatus(double lst) 
@@ -516,7 +600,6 @@ void getStatus(double lst)
     newMsg.addKeyValuePair<bool>("BRunning?", B_status);
     newMsg.addKeyValuePair<bool>("CRunning?", C_status);
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-    
 }
 
 // Returns 3 step counts
@@ -561,11 +644,37 @@ void fanSpeed(unsigned int PWR)
     analogWrite(FAN_CONTROL, PWR);
 }
 
+void save_current_positions() 
+{
+    unsigned int eeAddr = 1;
+    int Aposition = A.currentPosition();
+    int Bposition = B.currentPosition();
+    int Cposition = C.currentPosition();
 
+    EEPROM.put(eeAddr, Aposition);
+    eeAddr += sizeof(Aposition); //Move address to the next byte after float 'f'.
+    EEPROM.put(eeAddr, Bposition);
+    eeAddr += sizeof(Bposition); //Move address to the next byte after float 'f'.
+    EEPROM.put(eeAddr, Cposition);
+}
 
+void load_current_positions() 
+{
+    unsigned int eeAddr = 1;
+    int Aposition = 0;
+    int Bposition = 0;
+    int Cposition = 0;
 
+    EEPROM.get(eeAddr, Aposition);
+    eeAddr += sizeof(Aposition); //Move address to the next byte after float 'f'.
+    EEPROM.get(eeAddr, Bposition);
+    eeAddr += sizeof(Bposition); //Move address to the next byte after float 'f'.
+    EEPROM.get(eeAddr, Cposition);
 
-
+    A.setCurrentPosition(Aposition);
+    B.setCurrentPosition(Bposition);
+    C.setCurrentPosition(Cposition);
+}
 
 
 
@@ -638,14 +747,3 @@ void jogMirror(double lst)
         //delay(10);	
     }
 }
-
-/*
-void focusAbsolute(double v, double z) { 
-
-    // Convert v (rad / second) to steps / second 
-    v = v * (200 / (2 * PI)); // 2pi rad = 200 steps
-
-    focusRawAbsolute(v, z);
-}
-void focusRawAbsolute(double v, double z) {}
-*/

@@ -46,6 +46,9 @@ int get_thread_ID(bool commID, bool ctrlID);
 //void connectTerminalInterface(TerminalInterface* _cli);
 void handshake(unsigned int val);
 
+void save_current_positions();
+void load_current_positions();
+
 // PMC Command Processing functions
 void moveType(unsigned int type);
 void changeVel(double targetVel);
@@ -62,8 +65,8 @@ void moveRawAbsolute(double v, double tip, double tilt);
 void moveRawRelative(double v, double tip, double tilt);
 void focusRelative(double v, double z);
 void focusRelativeRaw(double v, double z);
-//void focusAbsolute(double v, double z);
-//void focusRawAbsolute(double v, double z);
+void focusAbsolute(double v, double z);
+void focusRawAbsolute(double v, double z);
 void home(double v);
 void getStatus(double lst);
 void getPositions(double lst);
