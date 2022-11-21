@@ -59,7 +59,7 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 
 //Determine Network values
 #define MAC { 0x00, 0x50, 0xB6, 0xEA, 0x8F, 0x44 }
-#define IPAdd   { 169,254,141,48 }
+#define IPAdd   { 169,254,232,24 }
 //#define MAC     { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED }
 //#define IPAdd   {192, 168, 121, 177}
 #define GATEWAY 0,0,0,0

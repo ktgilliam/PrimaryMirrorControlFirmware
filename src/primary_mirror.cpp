@@ -56,6 +56,7 @@ unsigned int mPort = PORT;
 
 void control_thread() {
   commsService->processClientData("PMCMessage");
+  threads.yield();
 }
 void comm_thread() {
 
@@ -110,7 +111,7 @@ void setup()
 
   load_current_positions();
 
-  threads.setDefaultStackSize(4096);
+  threads.setDefaultStackSize(6000);
   set_thread_ID(threads.addThread(comm_thread), 0);
 
 /*
@@ -122,10 +123,22 @@ void setup()
   connectTerminalInterface(pmcIf);
   pmcIf->addDebugMessage("Initialization complete");
 */
+
+  Serial.println("Initialization complete");
 }
 
 
 void loop() {
+
+  if (!commsService->Status()) {
+    TEST_SERIAL.println("Reconnecting to network.");
+    commsService->initializeEnetIface(PORT); // initialize
+    while (true)
+    {
+        ;
+        ;
+    }
+  }
 
 }
 

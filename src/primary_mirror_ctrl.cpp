@@ -36,6 +36,8 @@ static double tiltVal       = 0.0;
 static double focusVal      = 0.0;
 static int commthreadID     = 0;
 static int ctrlthreadID     = 0;
+static int typeVal          = 0;
+static int unitVal          = 0;
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -109,17 +111,10 @@ void connectTerminalInterface(TerminalInterface *_cli)
 void handshake(unsigned int val) {
 
     LFAST::CommsMessage newMsg;
-    if (val == 0xDEAD)
-    {
-        newMsg.addKeyValuePair<unsigned int>("Handshake", 0xBEEF);
-        commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-        std::string msg = "Connected to client.";
-        //mcIf->addDebugMessage(msg);
-    }
-    else
-    {
-        // TODO: Generate error
-    }
+    newMsg.addKeyValuePair<unsigned int>("Handshake.", val);
+    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    //std::string msg = "Connected to client.";
+    //mcIf->addDebugMessage(msg);
     return;
 }
 
@@ -187,8 +182,7 @@ void moveMirror(uint8_t axis, double val)
     static bool focusUpdated    = false;
     static bool tipUpdated      = false;
     static bool tiltUpdated     = false;
-    static int typeVal          = 0;
-    static int unitVal          = 0;
+
 
     if (axis == LFAST::PMC::VELOCITY)
     {
@@ -200,7 +194,8 @@ void moveMirror(uint8_t axis, double val)
         unitVal = val;
         unitUpdated = true;
     }
-    else if (axis == LFAST::PMC::FOCUS) {
+    else if (axis == LFAST::PMC::FOCUS) 
+    {
         focusVal = val;
         focusUpdated = true;
     }
@@ -219,23 +214,27 @@ void moveMirror(uint8_t axis, double val)
         typeVal = val;
         typeUpdated = true;
     }
-    // tip/tild adustment control parsing
-    if (velUpdated == true && unitUpdated == true && tipUpdated == true && tiltUpdated == true && typeUpdated == true){
+    // tip/tilt adustment control parsing
+    if (velUpdated == true && unitUpdated == true && tipUpdated == true && tiltUpdated == true && typeUpdated == true && focusUpdated == false){
 
         if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::RADSEC)) 
         { 
+            Serial.println("moveAbsolute");
             moveAbsolute(velVal, tipVal, tiltVal);
         }
         else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::RADSEC)) 
         { 
+            Serial.println("moveRelative");
             moveRelative(velVal, tipVal, tiltVal);
         }
         else if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::STEPSEC)) 
         { 
+            Serial.println("moveRawAbsolute");
             moveRawAbsolute(velVal, tipVal, tiltVal);
         }
         else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::STEPSEC)) 
         { 
+            Serial.println("moveRawRelative");
             moveRawRelative(velVal, tipVal, tiltVal);
         }
         velUpdated = false;
@@ -248,18 +247,22 @@ void moveMirror(uint8_t axis, double val)
     else if (focusUpdated == true && typeUpdated == true && velUpdated == true && unitUpdated == true) {
         if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::RADSEC) 
         {
+            Serial.println("focusRelative");
             focusRelative(velVal, focusVal);
         }
         else if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::STEPSEC) 
         {
+            Serial.println("focusRelativeRaw");
             focusRelativeRaw(velVal, focusVal);
         }
         else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::RADSEC) 
         {
+            Serial.println("focusAbsolute");
             focusAbsolute(velVal, focusVal);
         }
         else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::STEPSEC) 
         {
+            Serial.println("focusRawAbsolute");
             focusRawAbsolute(velVal, focusVal);
         }
         velUpdated = false;
@@ -486,7 +489,7 @@ void focusRelativeRaw(double v, double z)
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<std::string>("Adjusting focus.", "$OK^");
+    newMsg.addKeyValuePair<std::string>("Adjusting focus Relative.", "$OK^");
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
     // Convert Distance to steps 3um per step??
@@ -533,24 +536,29 @@ void focusAbsolute(double v, double z)
 void focusRawAbsolute(double v, double z) 
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
-    // get z position of actuators in steps (x, y positions are fixed)
-    int zA = A.currentPosition();
-    int zB = B.currentPosition();
-    int zC = C.currentPosition();
+    LFAST::CommsMessage newMsg;
+    newMsg.addKeyValuePair<std::string>("Adjusting focus absolute.", "$OK^");
+    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
-    // convert position in steps to microns?
+    // get z position of actuators in steps (x, y positions are fixed)
+    int zA, zB, zC, zf;
+    zA = A.currentPosition();
+    zB = B.currentPosition();
+    zC = C.currentPosition();
+
+    // convert position in steps to mm?
     // MM_PER_STEP microns / step
     zA = (zA * MM_PER_STEP);
     zB = (zB * MM_PER_STEP);
     zC = (zC * MM_PER_STEP); 
 
+
     // Calculate z postion of focus given three actuator points.
     // Derived from the position of actuators at any givem moment
     // Equation produces position in mm
-    int zf = ((((1376420)*(zB - 2*zA + zC)) / (4129260)) + zA) * 1000; // *1000 to convert mm to um
-
+    zf = ((((1376420)*(zB - (2*zA) + zC)) / (4129260)) + zA) * 1000; // *1000 to convert mm to um
     // Adjust velocity ( + for up z movement, - for down z movement)
-    if (zf < z) 
+    if (z < zf) 
     {
         v = -abs(v);
     }
@@ -560,14 +568,19 @@ void focusRawAbsolute(double v, double z)
     }
 
     // Difference between desired position and actual position to determine movement amount
+    Serial.println(z);
     int move = z - zf;
     // convert micron movement back to steps
     move = move / MICRON_PER_STEP; // microns * (1 step / 3 microns)
+    Serial.println(move);
 
     // Equally adust desired actuator movement given desired focus position  
     A.moveTo(A.currentPosition() + move);
+    A.setSpeed(v);
     B.moveTo(B.currentPosition() + move);
+    B.setSpeed(v);
     C.moveTo(C.currentPosition() + move);
+    C.setSpeed(v);
 
     while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0)) {
 
@@ -631,6 +644,8 @@ void stop(double lst)
     A.stop();
     B.stop();
     C.stop();
+
+    save_current_positions();
 
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Stopped", "$OK^");

@@ -52,7 +52,7 @@ void load_current_positions();
 // PMC Command Processing functions
 void moveType(unsigned int type);
 void changeVel(double targetVel);
-void velUnits(unsigned int target);
+void velUnits(unsigned int targetUnits);
 void changeTip(double targetTip);
 void changeTilt(double targetTilt);
 void changeFocus(double targetFocus);
