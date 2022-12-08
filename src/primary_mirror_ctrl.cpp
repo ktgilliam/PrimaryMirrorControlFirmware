@@ -17,28 +17,26 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 @date October 17, 2022
 @file primary_mirror_ctrl.cpp
 
-Implementation of Primary Mirror Control Functions. 
+Implementation of Primary Mirror Control Functions.
 */
 
 #include "primary_mirror_ctrl.h"
 #include "primary_mirror_global.h"
 #include <iostream>
 
-
 AccelStepper A(AccelStepper::DRIVER, A_STEP, A_DIR);
 AccelStepper B(AccelStepper::DRIVER, B_STEP, B_DIR);
 AccelStepper C(AccelStepper::DRIVER, C_STEP, C_DIR);
 extern LFAST::TcpCommsService *commsService;
 
-static double velVal        = 0.0;
-static double tipVal        = 0.0;
-static double tiltVal       = 0.0;
-static double focusVal      = 0.0;
-static int commthreadID     = 0;
-static int ctrlthreadID     = 0;
-static int typeVal          = 0;
-static int unitVal          = 0;
-
+static double velVal = 0.0;
+static double tipVal = 0.0;
+static double tiltVal = 0.0;
+static double focusVal = 0.0;
+static int commthreadID = 0;
+static int ctrlthreadID = 0;
+static int typeVal = 0;
+static int unitVal = 0;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////// Motion Control Functions  //////////////////////////////////////
@@ -47,58 +45,58 @@ static int unitVal          = 0;
 
 void hardware_setup()
 {
-  // Initialize motors + limit switches
-  A.setMaxSpeed(800.0); // Steps per second
-  A.setAcceleration(100.0); // Steps per second per second
-  pinMode(A_LIM, INPUT_PULLUP);
+    // Initialize motors + limit switches
+    A.setMaxSpeed(800.0);     // Steps per second
+    A.setAcceleration(100.0); // Steps per second per second
+    pinMode(A_LIM, INPUT_PULLUP);
 
-  B.setMaxSpeed(800.0);
-  B.setAcceleration(100.0);
-  pinMode(B_LIM, INPUT_PULLUP);
+    B.setMaxSpeed(800.0);
+    B.setAcceleration(100.0);
+    pinMode(B_LIM, INPUT_PULLUP);
 
-  C.setMaxSpeed(800.0);
-  C.setAcceleration(100.0);
-  pinMode(C_LIM, INPUT_PULLUP);
+    C.setMaxSpeed(800.0);
+    C.setAcceleration(100.0);
+    pinMode(C_LIM, INPUT_PULLUP);
 
-  //Global stepper enable pin, high to diable drivers
-  pinMode(STEP_ENABLE_PIN, OUTPUT);
-  digitalWrite(STEP_ENABLE_PIN, HIGH);
-
+    // Global stepper enable pin, high to diable drivers
+    pinMode(STEP_ENABLE_PIN, OUTPUT);
+    digitalWrite(STEP_ENABLE_PIN, HIGH);
 }
 
-
-void set_thread_ID(int commID, int ctrlID)  
+void set_thread_ID(int commID, int ctrlID)
 {
-    if (ctrlID == 0) 
+    if (ctrlID == 0)
     {
         commthreadID = commID;
-        //Serial.print("Comm thread ID set to: ");
-        //Serial.println(commthreadID);
+        // Serial.print("Comm thread ID set to: ");
+        // Serial.println(commthreadID);
     }
-    else if (commID == 0) 
+    else if (commID == 0)
     {
         ctrlthreadID = ctrlID;
-        //Serial.print("Ctrl thread ID set to: ");
-        //Serial.println(ctrlthreadID);
+        // Serial.print("Ctrl thread ID set to: ");
+        // Serial.println(ctrlthreadID);
     }
-    else {
-        //Serial.println("Invalid thread ID."); 
+    else
+    {
+        // Serial.println("Invalid thread ID.");
     }
 }
 
-
-int get_thread_ID(bool commID, bool ctrlID) {
-    if (ctrlID == 0) 
+int get_thread_ID(bool commID, bool ctrlID)
+{
+    if (ctrlID == 0)
     {
-        return(commthreadID);
+        return (commthreadID);
     }
-    else if (commID == 0) 
+    else if (commID == 0)
     {
-        return(ctrlthreadID);
+        return (ctrlthreadID);
     }
-    else {
-        //Serial.println("Invalid thread ID requested."); 
-        return(0);
+    else
+    {
+        // Serial.println("Invalid thread ID requested.");
+        return (0);
     }
 }
 /*
@@ -108,31 +106,37 @@ void connectTerminalInterface(TerminalInterface *_cli)
 }
 */
 // Handshake function to confirm connection
-void handshake(unsigned int val) {
+void handshake(unsigned int val)
+{
 
-    LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<unsigned int>("Handshake.", val);
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-    //std::string msg = "Connected to client.";
-    //mcIf->addDebugMessage(msg);
+    if (val == 0xDEAD)
+    {
+        LFAST::CommsMessage newMsg;
+        newMsg.addKeyValuePair<unsigned int>("Handshake", 0xBEEF);
+        commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+        // std::string msg = "Connected to client.";
+        // mcIf->addDebugMessage(msg);
+    }
     return;
 }
 
-
 // Functions to update necessary control variables
-void moveType(unsigned int type) 
+void moveType(unsigned int type)
 {
-    unsigned int move = 0;    
+    unsigned int move = 0;
     LFAST::CommsMessage newMsg;
 
-    if (type == 0) { // absolute
+    if (type == 0)
+    { // absolute
         move = LFAST::ABSOLUTE;
     }
-    else if (type == 1) { // relative
+    else if (type == 1)
+    { // relative
         move = LFAST::RELATIVE;
     }
-    else {
-        newMsg.addKeyValuePair<unsigned int>("Invalid movement type.", 0x0BAD);
+    else
+    {
+        newMsg.addKeyValuePair<unsigned int>("MoveError", 0x0BAD);
         commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
         return;
     }
@@ -146,17 +150,20 @@ void changeVel(double targetVel)
 
 void velUnits(unsigned int units)
 {
-    unsigned int unit = 0;    
+    unsigned int unit = 0;
     LFAST::CommsMessage newMsg;
 
-    if (units == 0) { //rad / sec
+    if (units == 0)
+    { // rad / sec
         unit = LFAST::RADSEC;
     }
-    else if (units == 1) { // steps / sec
+    else if (units == 1)
+    { // steps / sec
         unit = LFAST::STEPSEC;
     }
-    else {
-        newMsg.addKeyValuePair<unsigned int>("Invalid velocity units.", 0x0BAD);
+    else
+    {
+        newMsg.addKeyValuePair<unsigned int>("VelocitySetError", 0x0BAD);
         commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
         return;
     }
@@ -170,19 +177,18 @@ void changeTilt(double targetTilt)
 {
     moveMirror(LFAST::TILT, targetTilt);
 }
-void changeFocus(double targetFocus) 
+void changeFocus(double targetFocus)
 {
     moveMirror(LFAST::FOCUS, targetFocus);
 }
-void moveMirror(uint8_t axis, double val) 
+void moveMirror(uint8_t axis, double val)
 {
-    static bool velUpdated      = false;
-    static bool typeUpdated     = false;
-    static bool unitUpdated     = false;
-    static bool focusUpdated    = false;
-    static bool tipUpdated      = false;
-    static bool tiltUpdated     = false;
-
+    static bool velUpdated = false;
+    static bool typeUpdated = false;
+    static bool unitUpdated = false;
+    static bool focusUpdated = false;
+    static bool tipUpdated = false;
+    static bool tiltUpdated = false;
 
     if (axis == LFAST::PMC::VELOCITY)
     {
@@ -194,7 +200,7 @@ void moveMirror(uint8_t axis, double val)
         unitVal = val;
         unitUpdated = true;
     }
-    else if (axis == LFAST::PMC::FOCUS) 
+    else if (axis == LFAST::PMC::FOCUS)
     {
         focusVal = val;
         focusUpdated = true;
@@ -215,25 +221,26 @@ void moveMirror(uint8_t axis, double val)
         typeUpdated = true;
     }
     // tip/tilt adustment control parsing
-    if (velUpdated == true && unitUpdated == true && tipUpdated == true && tiltUpdated == true && typeUpdated == true && focusUpdated == false){
+    if (velUpdated == true && unitUpdated == true && tipUpdated == true && tiltUpdated == true && typeUpdated == true && focusUpdated == false)
+    {
 
-        if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::RADSEC)) 
-        { 
+        if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::RADSEC))
+        {
             Serial.println("moveAbsolute");
             moveAbsolute(velVal, tipVal, tiltVal);
         }
-        else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::RADSEC)) 
-        { 
+        else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::RADSEC))
+        {
             Serial.println("moveRelative");
             moveRelative(velVal, tipVal, tiltVal);
         }
-        else if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::STEPSEC)) 
-        { 
+        else if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::STEPSEC))
+        {
             Serial.println("moveRawAbsolute");
             moveRawAbsolute(velVal, tipVal, tiltVal);
         }
-        else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::STEPSEC)) 
-        { 
+        else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::STEPSEC))
+        {
             Serial.println("moveRawRelative");
             moveRawRelative(velVal, tipVal, tiltVal);
         }
@@ -244,23 +251,24 @@ void moveMirror(uint8_t axis, double val)
         unitUpdated = false;
     }
     // focus adjustment control parsing
-    else if (focusUpdated == true && typeUpdated == true && velUpdated == true && unitUpdated == true) {
-        if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::RADSEC) 
+    else if (focusUpdated == true && typeUpdated == true && velUpdated == true && unitUpdated == true)
+    {
+        if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::RADSEC)
         {
             Serial.println("focusRelative");
             focusRelative(velVal, focusVal);
         }
-        else if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::STEPSEC) 
+        else if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::STEPSEC)
         {
             Serial.println("focusRelativeRaw");
             focusRelativeRaw(velVal, focusVal);
         }
-        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::RADSEC) 
+        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::RADSEC)
         {
             Serial.println("focusAbsolute");
             focusAbsolute(velVal, focusVal);
         }
-        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::STEPSEC) 
+        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::STEPSEC)
         {
             Serial.println("focusRawAbsolute");
             focusRawAbsolute(velVal, focusVal);
@@ -272,9 +280,8 @@ void moveMirror(uint8_t axis, double val)
     }
 }
 
-
 // Move all actuators to home positions at velocity V (steps/sec)
-void home(volatile double v) 
+void home(volatile double v)
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
@@ -285,34 +292,42 @@ void home(volatile double v)
     B.setSpeed(-v);
     C.setSpeed(-v);
     // Retract motors until they reach limit switches
-    while ((digitalRead(A_LIM)) || (digitalRead(B_LIM)) || (digitalRead(C_LIM))) {
+    while ((digitalRead(A_LIM)) || (digitalRead(B_LIM)) || (digitalRead(C_LIM)))
+    {
 
-        if ((digitalRead(A_LIM))) {
+        if ((digitalRead(A_LIM)))
+        {
             A.runSpeed();
         }
-        if ((digitalRead(B_LIM))) {
+        if ((digitalRead(B_LIM)))
+        {
             B.runSpeed();
         }
-        if ((digitalRead(C_LIM))) {
+        if ((digitalRead(C_LIM)))
+        {
             C.runSpeed();
         }
     }
 
-    //Time to allow limit switch to settle
+    // Time to allow limit switch to settle
     delay(1);
     A.setSpeed(v);
     B.setSpeed(v);
     C.setSpeed(v);
     // Deploy motors until limit switches deactivate
-    while (!(digitalRead(A_LIM)) || !(digitalRead(B_LIM)) || !(digitalRead(C_LIM))) {
+    while (!(digitalRead(A_LIM)) || !(digitalRead(B_LIM)) || !(digitalRead(C_LIM)))
+    {
 
-        if (!(digitalRead(A_LIM))) {
+        if (!(digitalRead(A_LIM)))
+        {
             A.runSpeed();
         }
-        if (!(digitalRead(B_LIM))) {
+        if (!(digitalRead(B_LIM)))
+        {
             B.runSpeed();
         }
-        if (!(digitalRead(C_LIM))) {
+        if (!(digitalRead(C_LIM)))
+        {
             C.runSpeed();
         }
     }
@@ -323,29 +338,28 @@ void home(volatile double v)
     save_current_positions();
 }
 
-
-// Move each axis with velocity V to an absolute X,Y position with respect to “home” 
+// Move each axis with velocity V to an absolute X,Y position with respect to “home”
 // Velocity input as rad/ sec, converted to steps / sec
-void moveAbsolute(double v, double tip, double tilt) 
+void moveAbsolute(double v, double tip, double tilt)
 {
-    // Convert v (rad / second) to steps / second 
-    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel 
+    // Convert v (rad / second) to steps / second
+    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
     moveRawAbsolute(v, tip, tilt);
 }
 // Move each axis with velocity V to an absolute X,Y position with respect to “home”
 // V, X and Y are vectors of length 3. Velocity is in units of steps per second, X,Y are steps.
 // Velocity input as steps / sec
-void moveRawAbsolute(double v, double tip, double tilt) 
+void moveRawAbsolute(double v, double tip, double tilt)
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Absolute", "$OK^");
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
-   // Convert x/y inputs to absulute stepper positions relative to zero position (Produces results in mm)
-    double Adistance = (281.3*sin(tip)) / cos(tip);
-    double Bdistance = (0.004 * (60900.0*sin(tilt) - 35160.0*cos(tilt)*sin(tip))) / (cos(tip)*cos(tilt));
-    double Cdistance = (-0.004 * (60900.0*sin(tilt) + 35160.0*cos(tilt)*sin(tip))) / (cos(tip)*cos(tilt));
+    // Convert x/y inputs to absulute stepper positions relative to zero position (Produces results in mm)
+    double Adistance = (281.3 * sin(tip)) / cos(tip);
+    double Bdistance = (0.004 * (60900.0 * sin(tilt) - 35160.0 * cos(tilt) * sin(tip))) / (cos(tip) * cos(tilt));
+    double Cdistance = (-0.004 * (60900.0 * sin(tilt) + 35160.0 * cos(tilt) * sin(tip))) / (cos(tip) * cos(tilt));
 
     // Convert Distance to steps (0.003mm per step??)
     int Asteps = Adistance / (MM_PER_STEP);
@@ -353,34 +367,44 @@ void moveRawAbsolute(double v, double tip, double tilt)
     int Csteps = Cdistance / (MM_PER_STEP);
 
     // Set directions based on desired positions relative to current positions of steppers.
-    if (A.currentPosition() > Asteps) {
+    if (A.currentPosition() > Asteps)
+    {
         A.setSpeed(-v);
     }
-    else {
+    else
+    {
         A.setSpeed(v);
     }
-    if (B.currentPosition() > Bsteps) {
+    if (B.currentPosition() > Bsteps)
+    {
         B.setSpeed(-v);
     }
-    else {
+    else
+    {
         B.setSpeed(v);
     }
-    if (C.currentPosition() > Csteps) {
+    if (C.currentPosition() > Csteps)
+    {
         C.setSpeed(-v);
     }
-    else {
+    else
+    {
         C.setSpeed(v);
     }
 
-    while ((A.currentPosition() != Asteps) || (B.currentPosition() != Bsteps) || (C.currentPosition() != Csteps)) {
+    while ((A.currentPosition() != Asteps) || (B.currentPosition() != Bsteps) || (C.currentPosition() != Csteps))
+    {
 
-        if (A.currentPosition() != Asteps) {
+        if (A.currentPosition() != Asteps)
+        {
             A.runSpeed();
         }
-        if (B.currentPosition() != Bsteps) {
+        if (B.currentPosition() != Bsteps)
+        {
             B.runSpeed();
         }
-        if (C.currentPosition() != Csteps) {
+        if (C.currentPosition() != Csteps)
+        {
             C.runSpeed();
         }
     }
@@ -388,15 +412,14 @@ void moveRawAbsolute(double v, double tip, double tilt)
     save_current_positions();
 }
 
-
-// Move each axis with velocity V X,Y units from the current position In the above commands, 
+// Move each axis with velocity V X,Y units from the current position In the above commands,
 // V, X and Y are vectors of length 3. Velocity is in units of radians per second, X,Y are milliradians.
 // Velocity input as rad/ sec, converted to steps / sec
 void moveRelative(double v, double tip, double tilt)
-{ 
-    // Convert v (rad / second) to steps / second 
-    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel 
-    moveRawRelative(v, tip, tilt);                // linear velocity / (1 step / 3 um) = steps / sec 
+{
+    // Convert v (rad / second) to steps / second
+    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
+    moveRawRelative(v, tip, tilt);               // linear velocity / (1 step / 3 um) = steps / sec
 }
 // Move each axis with velocity V X,Y units from the current position to achieve desired tip/tilt(radians) relative position
 // Velocity input as steps / sec
@@ -408,9 +431,9 @@ void moveRawRelative(double v, double tip, double tilt)
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
     // Convert x/y inputs to absulute stepper positions relative to zero position (Produces results in mm)
-    double Adistance = (281.3*sin(tip)) / cos(tip);
-    double Bdistance = (0.004 * (60900.0*sin(tilt) - 35160.0*cos(tilt)*sin(tip))) / (cos(tip)*cos(tilt));
-    double Cdistance = (-0.004 * (60900.0*sin(tilt) + 35160.0*cos(tilt)*sin(tip))) / (cos(tip)*cos(tilt));
+    double Adistance = (281.3 * sin(tip)) / cos(tip);
+    double Bdistance = (0.004 * (60900.0 * sin(tilt) - 35160.0 * cos(tilt) * sin(tip))) / (cos(tip) * cos(tilt));
+    double Cdistance = (-0.004 * (60900.0 * sin(tilt) + 35160.0 * cos(tilt) * sin(tip))) / (cos(tip) * cos(tilt));
 
     // Convert Distance to steps (MM_PER_STEP mm per step??)
     int Asteps = Adistance / (MM_PER_STEP);
@@ -422,38 +445,42 @@ void moveRawRelative(double v, double tip, double tilt)
     Serial.println(Csteps);
 
     A.moveTo(A.currentPosition() + Asteps);
-    if(Asteps < 0) 
+    if (Asteps < 0)
     {
         A.setSpeed(-v);
     }
-    else{
+    else
+    {
         A.setSpeed(v);
     }
     B.moveTo(B.currentPosition() + Bsteps);
-    if(Bsteps < 0) 
+    if (Bsteps < 0)
     {
         B.setSpeed(-v);
     }
-    else{
+    else
+    {
         B.setSpeed(v);
     }
     C.moveTo(C.currentPosition() + Csteps);
-    if(Csteps < 0) 
+    if (Csteps < 0)
     {
         C.setSpeed(-v);
     }
-    else{
+    else
+    {
         C.setSpeed(v);
     }
 
-        Serial.print("A: ");
-        Serial.println(A.distanceToGo());
-        Serial.print("B: ");
-        Serial.println(B.distanceToGo());
-        Serial.print("C: ");
-        Serial.println(C.distanceToGo());
+    Serial.print("A: ");
+    Serial.println(A.distanceToGo());
+    Serial.print("B: ");
+    Serial.println(B.distanceToGo());
+    Serial.print("C: ");
+    Serial.println(C.distanceToGo());
 
-    while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0)) {
+    while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0))
+    {
         /*
         Serial.print("A: ");
         Serial.println(A.distanceToGo());
@@ -462,13 +489,16 @@ void moveRawRelative(double v, double tip, double tilt)
         Serial.print("C: ");
         Serial.println(C.distanceToGo());*/
 
-        if (A.distanceToGo() != 0) {
+        if (A.distanceToGo() != 0)
+        {
             A.runSpeed();
         }
-        if (B.distanceToGo() != 0) {
+        if (B.distanceToGo() != 0)
+        {
             B.runSpeed();
         }
-        if (C.distanceToGo() != 0) {
+        if (C.distanceToGo() != 0)
+        {
             C.runSpeed();
         }
     }
@@ -476,16 +506,15 @@ void moveRawRelative(double v, double tip, double tilt)
     save_current_positions();
 }
 
-
 // Adjust focus position z(um) at velicity v(rad/sec)
-void focusRelative(double v, double z) 
-{ 
-    // Convert v (rad / second) to steps / second 
-    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel 
+void focusRelative(double v, double z)
+{
+    // Convert v (rad / second) to steps / second
+    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
     focusRelativeRaw(velVal, focusVal);
 }
 // Adjust focus position z(um) from current position at velicity v(steps/sec)
-void focusRelativeRaw(double v, double z) 
+void focusRelativeRaw(double v, double z)
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
@@ -496,7 +525,8 @@ void focusRelativeRaw(double v, double z)
     // z is in microns??
     int steps = z / 3;
 
-    if (z < 0) {
+    if (z < 0)
+    {
         v = -v;
     }
     A.moveTo(A.currentPosition() + steps);
@@ -506,15 +536,19 @@ void focusRelativeRaw(double v, double z)
     C.moveTo(C.currentPosition() + steps);
     C.setSpeed(v);
 
-    while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0)) {
+    while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0))
+    {
 
-        if (A.distanceToGo() != 0) {
+        if (A.distanceToGo() != 0)
+        {
             A.runSpeed();
         }
-        if (B.distanceToGo() != 0) {
+        if (B.distanceToGo() != 0)
+        {
             B.runSpeed();
         }
-        if (C.distanceToGo() != 0) {
+        if (C.distanceToGo() != 0)
+        {
             C.runSpeed();
         }
     }
@@ -522,18 +556,16 @@ void focusRelativeRaw(double v, double z)
     save_current_positions();
 }
 
-
 // v input in (rad/sec), z input as um
-void focusAbsolute(double v, double z) 
+void focusAbsolute(double v, double z)
 {
-    // Convert v (rad / second) to steps / second 
-    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel 
+    // Convert v (rad / second) to steps / second
+    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
     focusRawAbsolute(v, z);
 }
 
-
 // v input in (steps/sec), z input as um
-void focusRawAbsolute(double v, double z) 
+void focusRawAbsolute(double v, double z)
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
@@ -550,15 +582,14 @@ void focusRawAbsolute(double v, double z)
     // MM_PER_STEP microns / step
     zA = (zA * MM_PER_STEP);
     zB = (zB * MM_PER_STEP);
-    zC = (zC * MM_PER_STEP); 
-
+    zC = (zC * MM_PER_STEP);
 
     // Calculate z postion of focus given three actuator points.
     // Derived from the position of actuators at any givem moment
     // Equation produces position in mm
-    zf = ((((1376420)*(zB - (2*zA) + zC)) / (4129260)) + zA) * 1000; // *1000 to convert mm to um
+    zf = ((((1376420) * (zB - (2 * zA) + zC)) / (4129260)) + zA) * 1000; // *1000 to convert mm to um
     // Adjust velocity ( + for up z movement, - for down z movement)
-    if (z < zf) 
+    if (z < zf)
     {
         v = -abs(v);
     }
@@ -574,7 +605,7 @@ void focusRawAbsolute(double v, double z)
     move = move / MICRON_PER_STEP; // microns * (1 step / 3 microns)
     Serial.println(move);
 
-    // Equally adust desired actuator movement given desired focus position  
+    // Equally adust desired actuator movement given desired focus position
     A.moveTo(A.currentPosition() + move);
     A.setSpeed(v);
     B.moveTo(B.currentPosition() + move);
@@ -582,15 +613,19 @@ void focusRawAbsolute(double v, double z)
     C.moveTo(C.currentPosition() + move);
     C.setSpeed(v);
 
-    while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0)) {
+    while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0))
+    {
 
-        if (A.distanceToGo() != 0) {
+        if (A.distanceToGo() != 0)
+        {
             A.runSpeed();
         }
-        if (B.distanceToGo() != 0) {
+        if (B.distanceToGo() != 0)
+        {
             B.runSpeed();
         }
-        if (C.distanceToGo() != 0) {
+        if (C.distanceToGo() != 0)
+        {
             C.runSpeed();
         }
     }
@@ -598,13 +633,12 @@ void focusRawAbsolute(double v, double z)
     save_current_positions();
 }
 
-
-// Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving 
-void getStatus(double lst) 
+// Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving
+void getStatus(double lst)
 {
     bool A_status, B_status, C_status;
-    
-    A_status = A.isRunning();  // Checks to see if the motor is currently running to a target
+
+    A_status = A.isRunning(); // Checks to see if the motor is currently running to a target
     B_status = B.isRunning(); // true if the speed is not zero or not at the target position
     C_status = C.isRunning();
 
@@ -616,7 +650,7 @@ void getStatus(double lst)
 }
 
 // Returns 3 step counts
-void getPositions(double lst) 
+void getPositions(double lst)
 {
     double A_position, B_position, C_position;
 
@@ -632,15 +666,15 @@ void getPositions(double lst)
 }
 
 // Immediately stops all motion
-void stop(double lst) 
+void stop(double lst)
 {
     digitalWrite(STEP_ENABLE_PIN, HIGH);
     int i = 1;
-    while ((ctrlthreadID - i) != commthreadID)     // Kill all running control threads
+    while ((ctrlthreadID - i) != commthreadID) // Kill all running control threads
     {
-        threads.kill(ctrlthreadID - i); 
+        threads.kill(ctrlthreadID - i);
         i++;
-    }    
+    }
     A.stop();
     B.stop();
     C.stop();
@@ -659,7 +693,7 @@ void fanSpeed(unsigned int PWR)
     analogWrite(FAN_CONTROL, PWR);
 }
 
-void save_current_positions() 
+void save_current_positions()
 {
     unsigned int eeAddr = 1;
     int Aposition = A.currentPosition();
@@ -667,13 +701,13 @@ void save_current_positions()
     int Cposition = C.currentPosition();
 
     EEPROM.put(eeAddr, Aposition);
-    eeAddr += sizeof(Aposition); //Move address to the next byte after float 'f'.
+    eeAddr += sizeof(Aposition); // Move address to the next byte after float 'f'.
     EEPROM.put(eeAddr, Bposition);
-    eeAddr += sizeof(Bposition); //Move address to the next byte after float 'f'.
+    eeAddr += sizeof(Bposition); // Move address to the next byte after float 'f'.
     EEPROM.put(eeAddr, Cposition);
 }
 
-void load_current_positions() 
+void load_current_positions()
 {
     unsigned int eeAddr = 1;
     int Aposition = 0;
@@ -681,9 +715,9 @@ void load_current_positions()
     int Cposition = 0;
 
     EEPROM.get(eeAddr, Aposition);
-    eeAddr += sizeof(Aposition); //Move address to the next byte after float 'f'.
+    eeAddr += sizeof(Aposition); // Move address to the next byte after float 'f'.
     EEPROM.get(eeAddr, Bposition);
-    eeAddr += sizeof(Bposition); //Move address to the next byte after float 'f'.
+    eeAddr += sizeof(Bposition); // Move address to the next byte after float 'f'.
     EEPROM.get(eeAddr, Cposition);
 
     A.setCurrentPosition(Aposition);
@@ -691,48 +725,39 @@ void load_current_positions()
     C.setCurrentPosition(Cposition);
 }
 
-
-
-
-
-
-
-
-
-
 //////////////////////////////////////////////////////////////////////////////////////////
-                            /*Code Below is in work*/
+/*Code Below is in work*/
 //////////////////////////////////////////////////////////////////////////////////////////
-// Static or Dynamic? 
-void jogMirror(double lst) 
+// Static or Dynamic?
+void jogMirror(double lst)
 {
-    while (digitalRead(SW)){
+    while (digitalRead(SW))
+    {
 
-        static int indx=0;
-        int xValue = 0 ;
-        int yValue = 0 ; 
+        static int indx = 0;
+        int xValue = 0;
+        int yValue = 0;
         int mapX = 0;
         int mapY = 0;
 
-        for(int i = 0; i < 8; i++) {
-            xValue = xValue + analogRead(VRx);	
-            yValue = yValue + analogRead(VRy);	
+        for (int i = 0; i < 8; i++)
+        {
+            xValue = xValue + analogRead(VRx);
+            yValue = yValue + analogRead(VRy);
         }
-        xValue = (xValue / 8) - 127;	
-        yValue = (yValue / 8) - 149;	
+        xValue = (xValue / 8) - 127;
+        yValue = (yValue / 8) - 149;
         mapX = map(xValue, 0, 1023, -512, 512);
         mapY = -map(yValue, 0, 1023, -512, 512);
         mapX = mapX / (PI * 4);
         mapY = mapY / (PI * 4);
 
+        double Aspeed = (281.3 * sin(mapX)) / cos(mapX);
+        double Bspeed = (0.004 * (60900.0 * sin(mapY) - 35160.0 * cos(mapY) * sin(mapX))) / (cos(mapX) * cos(mapY));
+        double Cspeed = (-0.004 * (60900.0 * sin(mapY) + 35160.0 * cos(mapY) * sin(mapX))) / (cos(mapX) * cos(mapY));
 
-        double Aspeed = (281.3*sin(mapX)) / cos(mapX);
-        double Bspeed = (0.004 * (60900.0*sin(mapY) - 35160.0*cos(mapY)*sin(mapX))) / (cos(mapX)*cos(mapY));
-        double Cspeed = (-0.004 * (60900.0*sin(mapY) + 35160.0*cos(mapY)*sin(mapX))) / (cos(mapX)*cos(mapY));
-
-
-    
-        if(!(indx%1000)) {
+        if (!(indx % 1000))
+        {
             Serial.print("X: ");
             Serial.println(xValue, DEC);
             Serial.print("Y: ");
@@ -750,15 +775,16 @@ void jogMirror(double lst)
         }
 
         indx++;
-    
-        if ((mapX > 200) || (mapX < -200) || (mapY > 200) || (mapY < -200)) { 
+
+        if ((mapX > 200) || (mapX < -200) || (mapY > 200) || (mapY < -200))
+        {
             A.setSpeed(Aspeed);
             A.run();
             B.setSpeed(Bspeed);
-            B.run(); 
+            B.run();
             C.setSpeed(Cspeed);
-            C.run(); 
+            C.run();
         }
-        //delay(10);	
+        // delay(10);
     }
 }

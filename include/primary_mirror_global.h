@@ -26,7 +26,6 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #include <TcpCommsService.h>
 #include <TerminalInterface.h>
 #include <cmath>
-#include <debug.h>
 #include <math.h>
 #include <heartbeat.h>
 #include <string>
@@ -59,9 +58,9 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 
 //Determine Network values
 #define MAC { 0x00, 0x50, 0xB6, 0xEA, 0x8F, 0x44 }
-#define IPAdd   { 169,254,232,24 }
+// #define IPAdd   { 169,254,232,24 }
 //#define MAC     { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED }
-//#define IPAdd   {192, 168, 121, 177}
+#define IPAdd   {192, 168, 121, 177}
 #define GATEWAY 0,0,0,0
 #define SUBNET  0,0,0,0
 #define PORT    1883//4400

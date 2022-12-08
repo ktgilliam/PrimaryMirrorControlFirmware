@@ -85,7 +85,7 @@ void setup()
   commsService = new LFAST::TcpCommsService(myIP);
   commsService->initializeEnetIface(PORT); // initialize
   if (!commsService->Status()) {
-        TEST_SERIAL.println("Device Setup Failed.");
+        Serial.println("Device Setup Failed.");
         while (true)
         {
             ;
@@ -119,7 +119,7 @@ void setup()
   resetHeartbeat();
   setHeartBeatPeriod(400000);
 
-  pmcIf = new TerminalInterface(PMC_LABEL, &(TEST_SERIAL));
+  pmcIf = new TerminalInterface(PMC_LABEL, &(Serial));
   connectTerminalInterface(pmcIf);
   pmcIf->addDebugMessage("Initialization complete");
 */
@@ -131,7 +131,7 @@ void setup()
 void loop() {
 
   if (!commsService->Status()) {
-    TEST_SERIAL.println("Reconnecting to network.");
+    Serial.println("Reconnecting to network.");
     commsService->initializeEnetIface(PORT); // initialize
     while (true)
     {
