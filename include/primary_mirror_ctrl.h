@@ -38,80 +38,91 @@ Stop() – Immediately stops all motion
 #define PRIMARY_MIRROR_CONTROL_H
 
 #include <iostream>
-#include <TcpCommsService.h>
+#include <LFAST_Device.h>
 #include <TerminalInterface.h>
+
 // Setup functions
-void hardware_setup();
+
 void set_thread_ID(int commID, int ctrlID);
 int get_thread_ID(bool commID, bool ctrlID);
 // void connectTerminalInterface(TerminalInterface* _cli);
-void handshake(unsigned int val);
-
-void save_current_positions();
-void load_current_positions();
 
 // PMC Command Processing functions
-void moveType(unsigned int type);
-void changeVel(double targetVel);
-void velUnits(unsigned int targetUnits);
-void changeTip(double targetTip);
-void changeTilt(double targetTilt);
-void changeFocus(double targetFocus);
-void moveMirror(uint8_t axis, double val);
 
 // PM Control functions
-void moveAbsolute(double v, double tip, double tilt);
-void moveRelative(double v, double tip, double tilt);
-void moveRawAbsolute(double v, double tip, double tilt);
-void moveRawRelative(double v, double tip, double tilt);
-void focusRelative(double v, double z);
-void focusRelativeRaw(double v, double z);
-void focusAbsolute(double v, double z);
-void focusRawAbsolute(double v, double z);
-void home(double v);
-void getStatus(double lst);
-void getPositions(double lst);
-void stop(double lst);
-void jogMirror(double lst);
-void fanSpeed(unsigned int val);
-
-void copyTerminalInterfacePtr(TerminalInterface *_cli);
-void copyCommsServicePtr(LFAST::TcpCommsService *_pCs);
-
-class PrimaryMirrorControl
+enum PRIMARY_MIRROR_ROWS
 {
-    
+    BLANK_ROW_0,
+    TIP_ROW,
+    TILT_ROW,
+    FOCUS_ROW
 };
-
 namespace LFAST
 {
+    void updateControlLoop_ISR();
+    void enableControlLoopInterrupt();
+
+    class PrimaryMirrorControl : public LFAST_Device
+    {
+    public:
+        static PrimaryMirrorControl &getMirrorController();
+        
+        virtual ~PrimaryMirrorControl() {}
+
+        void setupPersistentFields() override;
+
+        void moveMirror();
+        void setVelocity(double vel);
+        void setControlMode(uint8_t moveType);
+        void setVelUnits(uint8_t velUnits);
+        // void moveMirror(uint8_t axis, double val);
+        void setFanSpeed(unsigned int PWR);
+        void setTipTarget(double tgt);
+        void setTiltTarget(double tgt);
+        void setFocusTarget(double tgt);
+        void goHome(volatile double homeSpeed);
+        void stopNow();
+        bool getStatus(uint8_t motor);
+        double getPosition(uint8_t motor);
+        void moveAbsolute(double v, double tip, double tilt);
+        void moveRelative(double v, double tip, double tilt);
+        void moveRawAbsolute(double v, double tip, double tilt);
+        void moveRawRelative(double v, double tip, double tilt);
+        void jogMirror(double lst);
+
+        void focusRelative(double v, double z);
+        void focusRelativeRaw(double v, double z);
+        void focusAbsolute(double v, double z);
+        void focusRawAbsolute(double v, double z);
+
+        void save_current_positions();
+        void load_current_positions();
+
+    private:
+        PrimaryMirrorControl();
+        void hardware_setup();
+        double velVal;
+        double tipVal;
+        double tiltVal;
+        double focusVal;
+
+        bool focusUpdated;
+        bool tipUpdated;
+        bool tiltUpdated;
+
+        int unitVal;
+
+        uint8_t controlMode;
+        
+    };
+
     namespace PMC
     {
-        // enum PMC
-        // {
-        //     VELOCITY = 0,
-        //     TIP = 1,
-        //     TILT = 2,
-        //     FOCUS = 3,
-        //     TYPE = 4,
-        //     UNITS = 5,
-        //     ABSOLUTE = 6,
-        //     RELATIVE = 7,
-        //     RADSEC = 8,
-        //     STEPSEC = 9,
-        // };
-
         enum ControlMode
         {
             STOP = 0,
             RELATIVE = 1,
             ABSOLUTE = 2
-        };
-
-        enum MoveTypes
-        {
-            ABSOLUTE = 0,
-            RELATIVE = 1
         };
 
         enum UNIT_TYPES
@@ -133,6 +144,14 @@ namespace LFAST
             FORWARD = 1
         };
 
+        enum MOTOR_ID
+        {
+            MOTOR_A = 0,
+            MOTOR_B = 1,
+            MOTOR_C = 2
+        };
+
     }
-}
+};
+
 #endif

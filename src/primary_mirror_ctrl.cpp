@@ -21,33 +21,57 @@ Implementation of Primary Mirror Control Functions.
 */
 
 #include "primary_mirror_ctrl.h"
+#include <Arduino.h>
+#include <EEPROM.h>
+#include <AccelStepper.h>
+#include <MultiStepper.h>
+#include <cstring>
+#include <TimerOne.h>
+
 #include "primary_mirror_global.h"
+
 #include <iostream>
 #include <TerminalInterface.h>
+
+#include "teensy41_device.h"
 
 AccelStepper A(AccelStepper::DRIVER, A_STEP, A_DIR);
 AccelStepper B(AccelStepper::DRIVER, B_STEP, B_DIR);
 AccelStepper C(AccelStepper::DRIVER, C_STEP, C_DIR);
 
-namespace PMC_Local
-{
-    LFAST::TcpCommsService *commsService;
-    TerminalInterface *pmcIf;
-}
-static double velVal = 0.0;
-static double tipVal = 0.0;
-static double tiltVal = 0.0;
-static double focusVal = 0.0;
-static int commthreadID = 0;
-static int ctrlthreadID = 0;
-static int typeVal = 0;
-static int unitVal = 0;
-
+const unsigned long int updatePrd_us = 1000;
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////// Motion Control Functions  //////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
+using namespace LFAST;
 
-void hardware_setup()
+void LFAST::enableControlLoopInterrupt()
+{
+    Timer1.attachInterrupt(LFAST::updateControlLoop_ISR);
+    Timer1.initialize(updatePrd_us);
+}
+
+void LFAST::updateControlLoop_ISR()
+{
+    LFAST::PrimaryMirrorControl &pmc = LFAST::PrimaryMirrorControl::getMirrorController();
+    // pmc.cli->addDebugMessage("inside interrupt");
+    pmc.moveMirror();
+}
+
+PrimaryMirrorControl::PrimaryMirrorControl()
+{
+    // PrimaryMirrorControl::pmcPtr = this;
+    controlMode = LFAST::PMC::STOP;
+    hardware_setup();
+}
+
+PrimaryMirrorControl &PrimaryMirrorControl::getMirrorController()
+{
+    static PrimaryMirrorControl instance;
+    return instance;
+}
+
+void PrimaryMirrorControl::hardware_setup()
 {
     // Initialize motors + limit switches
     A.setMaxSpeed(800.0);     // Steps per second
@@ -67,238 +91,161 @@ void hardware_setup()
     digitalWrite(STEP_ENABLE_PIN, HIGH);
 }
 
-void set_thread_ID(int commID, int ctrlID)
+void PrimaryMirrorControl::setupPersistentFields()
 {
-    if (ctrlID == 0)
-    {
-        commthreadID = commID;
-        // Serial.print("Comm thread ID set to: ");
-        // PMC_Local::pmcIf->addDebugMessage(commthreadID);
-    }
-    else if (commID == 0)
-    {
-        ctrlthreadID = ctrlID;
-        // Serial.print("Ctrl thread ID set to: ");
-        // PMC_Local::pmcIf->addDebugMessage(ctrlthreadID);
-    }
-    else
-    {
-        // PMC_Local::pmcIf->addDebugMessage("Invalid thread ID.");
-    }
-}
+    // None to set up yet
+    // TEST_SERIAL.printf("\r\n%s[setupPersistentFields]: %x\r\n", cli);
+    if (cli == nullptr)
+        return;
 
-int get_thread_ID(bool commID, bool ctrlID)
-{
-    if (ctrlID == 0)
-    {
-        return (commthreadID);
-    }
-    else if (commID == 0)
-    {
-        return (ctrlthreadID);
-    }
-    else
-    {
-        // PMC_Local::pmcIf->addDebugMessage("Invalid thread ID requested.");
-        return (0);
-    }
+    cli->addPersistentField(this->DeviceName, "[TIP]", TIP_ROW);
+    cli->addPersistentField(this->DeviceName, "[TILT]", TILT_ROW);
+    cli->addPersistentField(this->DeviceName, "[FOCUS]", FOCUS_ROW);
 }
-
-void copyTerminalInterfacePtr(TerminalInterface *_cli)
-{
-    PMC_Local::pmcIf = _cli;
-}
-
-void copyCommsServicePtr(LFAST::TcpCommsService * _pCs)
-{
-    PMC_Local::commsService = _pCs;
-}
-// Handshake function to confirm connection
-void handshake(unsigned int val)
-{
-    if (val == 0xDEAD)
-    {
-        LFAST::CommsMessage newMsg;
-        newMsg.addKeyValuePair<unsigned int>("Handshake", 0xBEEF);
-        PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-
-        PMC_Local::pmcIf->addDebugMessage("Connected to client.");
-    }
-    return;
-}
-
 // Functions to update necessary control variables
-void moveType(unsigned int type)
-{
-    unsigned int move = 0;
-    LFAST::CommsMessage newMsg;
 
-    if (type == 0)
-    { // absolute
-        move = LFAST::ABSOLUTE;
-    }
-    else if (type == 1)
-    { // relative
-        move = LFAST::RELATIVE;
-    }
-    else
-    {
-        newMsg.addKeyValuePair<unsigned int>("MoveError", 0x0BAD);
-        PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-        return;
-    }
-    moveMirror(LFAST::TYPE, move);
-}
-
-void changeVel(double targetVel)
+void PrimaryMirrorControl::moveMirror()
 {
-    moveMirror(LFAST::VELOCITY, targetVel);
-}
-
-void velUnits(unsigned int units)
-{
-    unsigned int unit = 0;
-    LFAST::CommsMessage newMsg;
-
-    if (units == 0)
-    { // rad / sec
-        unit = LFAST::PMC::ENGINEERING;
-    }
-    else if (units == 1)
-    { // steps / sec
-        unit = LFAST::PMC::STEPS_PER_SEC;
-    }
-    else
-    {
-        newMsg.addKeyValuePair<unsigned int>("VelocitySetError", 0x0BAD);
-        PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-        return;
-    }
-    moveMirror(LFAST::UNITS, unit);
-}
-void changeTip(double targetTip)
-{
-    // PMC_Local::pmcIf->addDebugMessage("Inside changeTip()");
-    moveMirror(LFAST::TIP, targetTip);
-}
-void changeTilt(double targetTilt)
-{
-    moveMirror(LFAST::TILT, targetTilt);
-}
-void changeFocus(double targetFocus)
-{
-    moveMirror(LFAST::FOCUS, targetFocus);
-}
-
-void moveMirror(uint8_t axis, double val)
-{
-    static bool velUpdated = false;
-    static bool typeUpdated = false;
-    static bool unitUpdated = false;
-    static bool focusUpdated = false;
-    static bool tipUpdated = false;
-    static bool tiltUpdated = false;
-
-    if (axis == LFAST::PMC::VELOCITY)
-    {
-        velVal = val;
-        velUpdated = true;
-    }
-    else if (axis == LFAST::PMC::UNITS)
-    {
-        unitVal = val;
-        unitUpdated = true;
-    }
-    else if (axis == LFAST::PMC::FOCUS)
-    {
-        focusVal = val;
-        focusUpdated = true;
-    }
-    else if (axis == LFAST::PMC::TIP)
-    {
-        tipVal = val;
-        tipUpdated = true;
-    }
-    else if (axis == LFAST::PMC::TILT)
-    {
-        tiltVal = val;
-        tiltUpdated = true;
-    }
-    else if (axis == LFAST::PMC::TYPE)
-    {
-        typeVal = val;
-        typeUpdated = true;
-    }
+    // if (cli != nullptr)
+    // {
+    //     cli->addDebugMessage("moving mirror");
+    // }
+    // else
+    // {
+    //     TEST_SERIAL.println("no cli");
+    // }
     // tip/tilt adustment control parsing
-    // if (velUpdated == true && unitUpdated == true && tipUpdated == true && tiltUpdated == true && typeUpdated == true && focusUpdated == false)
     if (tipUpdated == true || tiltUpdated == true)
     {
-
-        if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::ENGINEERING))
+        if ((controlMode == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::ENGINEERING))
         {
-            PMC_Local::pmcIf->addDebugMessage("moveAbsolute");
+            cli->addDebugMessage("moveAbsolute");
             moveAbsolute(velVal, tipVal, tiltVal);
         }
-        else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::ENGINEERING))
+        else if ((controlMode == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::ENGINEERING))
         {
-            PMC_Local::pmcIf->addDebugMessage("moveRelative");
+            cli->addDebugMessage("moveRelative");
             moveRelative(velVal, tipVal, tiltVal);
         }
-        else if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::STEPS_PER_SEC))
+        else if ((controlMode == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::STEPS_PER_SEC))
         {
-            PMC_Local::pmcIf->addDebugMessage("moveRawAbsolute");
+            cli->addDebugMessage("moveRawAbsolute");
             moveRawAbsolute(velVal, tipVal, tiltVal);
         }
-        else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::STEPS_PER_SEC))
+        else if ((controlMode == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::STEPS_PER_SEC))
         {
-            PMC_Local::pmcIf->addDebugMessage("moveRawRelative");
+            cli->addDebugMessage("moveRawRelative");
             moveRawRelative(velVal, tipVal, tiltVal);
         }
-        velUpdated = false;
         tipUpdated = false;
         tiltUpdated = false;
-        typeUpdated = false;
-        unitUpdated = false;
     }
     // focus adjustment control parsing
-    // else if (focusUpdated == true && typeUpdated == true && velUpdated == true && unitUpdated == true)
+    // else if (focusUpdated == true && modeUpdated == true && velUpdated == true && unitUpdated == true)
     if (focusUpdated == true)
     {
-        if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::ENGINEERING)
+        if (controlMode == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::ENGINEERING)
         {
-            PMC_Local::pmcIf->addDebugMessage("focusRelative");
+            cli->addDebugMessage("focusRelative");
             focusRelative(velVal, focusVal);
         }
-        else if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::STEPS_PER_SEC)
+        else if (controlMode == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::STEPS_PER_SEC)
         {
-            PMC_Local::pmcIf->addDebugMessage("focusRelativeRaw");
+            cli->addDebugMessage("focusRelativeRaw");
             focusRelativeRaw(velVal, focusVal);
         }
-        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::ENGINEERING)
+        else if (controlMode == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::ENGINEERING)
         {
-            PMC_Local::pmcIf->addDebugMessage("focusAbsolute");
+            cli->addDebugMessage("focusAbsolute");
             focusAbsolute(velVal, focusVal);
         }
-        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::ENGINEERING)
+        else if (controlMode == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::ENGINEERING)
         {
-            PMC_Local::pmcIf->addDebugMessage("focusRawAbsolute");
+            cli->addDebugMessage("focusRawAbsolute");
             focusRawAbsolute(velVal, focusVal);
         }
-        velUpdated = false;
-        unitUpdated = false;
         focusUpdated = false;
-        typeUpdated = false;
     }
+}
+
+void PrimaryMirrorControl::setVelocity(double vel)
+{
+    velVal = vel;
+}
+
+void PrimaryMirrorControl::setControlMode(uint8_t mode)
+{
+    controlMode = mode;
+}
+
+void PrimaryMirrorControl::setVelUnits(uint8_t velUnits)
+{
+    unitVal = velUnits;
+}
+
+void PrimaryMirrorControl::setTipTarget(double tgt)
+{
+    tipVal = tgt;
+    tipUpdated = true;
+}
+
+void PrimaryMirrorControl::setTiltTarget(double tgt)
+{
+    tiltVal = tgt;
+    tiltUpdated = true;
+}
+
+void PrimaryMirrorControl::setFocusTarget(double tgt)
+{
+    focusVal = tgt;
+    focusUpdated = true;
+}
+// Set the fan speed to a percentage S of full scale
+// Fan Pin unknown?
+void PrimaryMirrorControl::setFanSpeed(unsigned int PWR)
+{
+    analogWrite(FAN_CONTROL, PWR);
+}
+
+bool PrimaryMirrorControl::getStatus(uint8_t motor)
+{
+    if (motor == LFAST::PMC::MOTOR_A)
+        return A.isRunning(); // Checks to see if the motor is currently running to a target
+    else if (motor == LFAST::PMC::MOTOR_B)
+        return B.isRunning(); // true if the speed is not zero or not at the target position
+    else if (motor == LFAST::PMC::MOTOR_C)
+        return C.isRunning();
+    else
+        return false;
+}
+
+double PrimaryMirrorControl::getPosition(uint8_t motor)
+{
+    if (motor == LFAST::PMC::MOTOR_A)
+        return A.currentPosition(); // Checks to see if the motor is currently running to a target
+    else if (motor == LFAST::PMC::MOTOR_B)
+        return B.currentPosition(); // true if the speed is not zero or not at the target position
+    else if (motor == LFAST::PMC::MOTOR_C)
+        return C.currentPosition();
+    else
+        return 0.0;
+}
+
+// Immediately stops all motion
+void PrimaryMirrorControl::stopNow()
+{
+    digitalWrite(STEP_ENABLE_PIN, HIGH);
+    A.stop();
+    B.stop();
+    C.stop();
+
+    save_current_positions();
 }
 
 // Move all actuators to home positions at velocity V (steps/sec)
-void home(volatile double v)
+void PrimaryMirrorControl::goHome(volatile double v)
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
-    LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<std::string>("Finding Home", "$OK^");
-    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-
     A.setSpeed(-v);
     B.setSpeed(-v);
     C.setSpeed(-v);
@@ -351,21 +298,22 @@ void home(volatile double v)
 
 // Move each axis with velocity V to an absolute X,Y position with respect to “home”
 // Velocity input as rad/ sec, converted to steps / sec
-void moveAbsolute(double v, double tip, double tilt)
+void PrimaryMirrorControl::moveAbsolute(double v, double tip, double tilt)
 {
     // Convert v (rad / second) to steps / second
     v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
     moveRawAbsolute(v, tip, tilt);
 }
+
 // Move each axis with velocity V to an absolute X,Y position with respect to “home”
 // V, X and Y are vectors of length 3. Velocity is in units of steps per second, X,Y are steps.
 // Velocity input as steps / sec
-void moveRawAbsolute(double v, double tip, double tilt)
+void PrimaryMirrorControl::moveRawAbsolute(double v, double tip, double tilt)
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
-    LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Absolute", "$OK^");
-    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    // LFAST::CommsMessage newMsg;
+    // newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Absolute", "$OK^");
+    // commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
     // Convert x/y inputs to absulute stepper positions relative to zero position (Produces results in mm)
     double Adistance = (281.3 * sin(tip)) / cos(tip);
@@ -426,20 +374,21 @@ void moveRawAbsolute(double v, double tip, double tilt)
 // Move each axis with velocity V X,Y units from the current position In the above commands,
 // V, X and Y are vectors of length 3. Velocity is in units of radians per second, X,Y are milliradians.
 // Velocity input as rad/ sec, converted to steps / sec
-void moveRelative(double v, double tip, double tilt)
+void PrimaryMirrorControl::moveRelative(double v, double tip, double tilt)
 {
     // Convert v (rad / second) to steps / second
     v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
     moveRawRelative(v, tip, tilt);               // linear velocity / (1 step / 3 um) = steps / sec
 }
+
 // Move each axis with velocity V X,Y units from the current position to achieve desired tip/tilt(radians) relative position
 // Velocity input as steps / sec
-void moveRawRelative(double v, double tip, double tilt)
+void PrimaryMirrorControl::moveRawRelative(double v, double tip, double tilt)
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
-    LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Relative", "$OK^");
-    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    // LFAST::CommsMessage newMsg;
+    // newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Relative", "$OK^");
+    // commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
     // Convert x/y inputs to absulute stepper positions relative to zero position (Produces results in mm)
     double Adistance = (281.3 * sin(tip)) / cos(tip);
@@ -452,8 +401,8 @@ void moveRawRelative(double v, double tip, double tilt)
     int Csteps = Cdistance / (MM_PER_STEP);
 
     char debugMsg[100]{0};
-    sprintf(debugMsg, "A Steps: %d\tB Steps: %d\tC Steps: %d", Asteps,Bsteps,Csteps);
-    PMC_Local::pmcIf->addDebugMessage(debugMsg);
+    sprintf(debugMsg, "A Steps: %d\tB Steps: %d\tC Steps: %d", Asteps, Bsteps, Csteps);
+    cli->addDebugMessage(debugMsg);
 
     A.moveTo(A.currentPosition() + Asteps);
     if (Asteps < 0)
@@ -482,20 +431,13 @@ void moveRawRelative(double v, double tip, double tilt)
     {
         C.setSpeed(v);
     }
+
     std::memset(debugMsg, 0, sizeof(debugMsg));
-    sprintf(debugMsg, "To Go: A: %ld\tB: %ld\tC: %ld", A.distanceToGo(),B.distanceToGo(),C.distanceToGo());
-    PMC_Local::pmcIf->addDebugMessage(debugMsg);
+    sprintf(debugMsg, "To Go: A: %ld\tB: %ld\tC: %ld", A.distanceToGo(), B.distanceToGo(), C.distanceToGo());
+    cli->addDebugMessage(debugMsg);
 
     while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0))
     {
-        /*
-        Serial.print("A: ");
-        PMC_Local::pmcIf->addDebugMessage(A.distanceToGo());
-        Serial.print("B: ");
-        PMC_Local::pmcIf->addDebugMessage(B.distanceToGo());
-        Serial.print("C: ");
-        PMC_Local::pmcIf->addDebugMessage(C.distanceToGo());*/
-
         if (A.distanceToGo() != 0)
         {
             A.runSpeed();
@@ -514,19 +456,20 @@ void moveRawRelative(double v, double tip, double tilt)
 }
 
 // Adjust focus position z(um) at velicity v(rad/sec)
-void focusRelative(double v, double z)
+void PrimaryMirrorControl::focusRelative(double v, double z)
 {
     // Convert v (rad / second) to steps / second
     v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
     focusRelativeRaw(velVal, focusVal);
 }
+
 // Adjust focus position z(um) from current position at velicity v(steps/sec)
-void focusRelativeRaw(double v, double z)
+void PrimaryMirrorControl::focusRelativeRaw(double v, double z)
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
-    LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<std::string>("Adjusting focus Relative.", "$OK^");
-    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    // LFAST::CommsMessage newMsg;
+    // newMsg.addKeyValuePair<std::string>("Adjusting focus Relative.", "$OK^");
+    // commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
     // Convert Distance to steps 3um per step??
     // z is in microns??
@@ -564,7 +507,7 @@ void focusRelativeRaw(double v, double z)
 }
 
 // v input in (rad/sec), z input as um
-void focusAbsolute(double v, double z)
+void PrimaryMirrorControl::focusAbsolute(double v, double z)
 {
     // Convert v (rad / second) to steps / second
     v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
@@ -572,12 +515,12 @@ void focusAbsolute(double v, double z)
 }
 
 // v input in (steps/sec), z input as um
-void focusRawAbsolute(double v, double z)
+void PrimaryMirrorControl::focusRawAbsolute(double v, double z)
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
-    LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<std::string>("Adjusting focus absolute.", "$OK^");
-    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    // LFAST::CommsMessage newMsg;
+    // newMsg.addKeyValuePair<std::string>("Adjusting focus absolute.", "$OK^");
+    // commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
     // get z position of actuators in steps (x, y positions are fixed)
     int zA, zB, zC, zf;
@@ -606,11 +549,11 @@ void focusRawAbsolute(double v, double z)
     }
 
     // Difference between desired position and actual position to determine movement amount
-    // PMC_Local::pmcIf->addDebugMessage(z);
+    // cli->addDebugMessage(z);
     int move = z - zf;
     // convert micron movement back to steps
     move = move / MICRON_PER_STEP; // microns * (1 step / 3 microns)
-    // PMC_Local::pmcIf->addDebugMessage(move);
+    // cli->addDebugMessage(move);
 
     // Equally adust desired actuator movement given desired focus position
     A.moveTo(A.currentPosition() + move);
@@ -640,67 +583,7 @@ void focusRawAbsolute(double v, double z)
     save_current_positions();
 }
 
-// Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving
-void getStatus(double lst)
-{
-    bool A_status, B_status, C_status;
-
-    A_status = A.isRunning(); // Checks to see if the motor is currently running to a target
-    B_status = B.isRunning(); // true if the speed is not zero or not at the target position
-    C_status = C.isRunning();
-
-    LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<bool>("ARunning?", A_status);
-    newMsg.addKeyValuePair<bool>("BRunning?", B_status);
-    newMsg.addKeyValuePair<bool>("CRunning?", C_status);
-    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-}
-
-// Returns 3 step counts
-void getPositions(double lst)
-{
-    double A_position, B_position, C_position;
-
-    A_position = A.currentPosition();
-    B_position = B.currentPosition();
-    C_position = C.currentPosition();
-
-    LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<double>("APosition", A_position);
-    newMsg.addKeyValuePair<double>("BPosition", B_position);
-    newMsg.addKeyValuePair<double>("CPosition", C_position);
-    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-}
-
-// Immediately stops all motion
-void stop(double lst)
-{
-    digitalWrite(STEP_ENABLE_PIN, HIGH);
-    int i = 1;
-    while ((ctrlthreadID - i) != commthreadID) // Kill all running control threads
-    {
-        threads.kill(ctrlthreadID - i);
-        i++;
-    }
-    A.stop();
-    B.stop();
-    C.stop();
-
-    save_current_positions();
-
-    LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<std::string>("Stopped", "$OK^");
-    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-}
-
-// Set the fan speed to a percentage S of full scale
-// Fan Pin unknown?
-void fanSpeed(unsigned int PWR)
-{
-    analogWrite(FAN_CONTROL, PWR);
-}
-
-void save_current_positions()
+void PrimaryMirrorControl::save_current_positions()
 {
     unsigned int eeAddr = 1;
     int Aposition = A.currentPosition();
@@ -714,7 +597,7 @@ void save_current_positions()
     EEPROM.put(eeAddr, Cposition);
 }
 
-void load_current_positions()
+void PrimaryMirrorControl::load_current_positions()
 {
     unsigned int eeAddr = 1;
     int Aposition = 0;
@@ -736,7 +619,7 @@ void load_current_positions()
 /*Code Below is in work*/
 //////////////////////////////////////////////////////////////////////////////////////////
 // Static or Dynamic?
-void jogMirror(double lst)
+void PrimaryMirrorControl::jogMirror(double lst)
 {
     while (digitalRead(SW))
     {
@@ -766,19 +649,19 @@ void jogMirror(double lst)
         if (!(indx % 1000))
         {
             // Serial.print("X: ");
-            // PMC_Local::pmcIf->addDebugMessage(xValue, DEC);
+            // cli->addDebugMessage(xValue, DEC);
             // Serial.print("Y: ");
-            // PMC_Local::pmcIf->addDebugMessage(yValue, DEC);
+            // cli->addDebugMessage(yValue, DEC);
             // Serial.print("mapX: ");
-            // PMC_Local::pmcIf->addDebugMessage(mapX, DEC);
+            // cli->addDebugMessage(mapX, DEC);
             // Serial.print("mapY: ");
-            // PMC_Local::pmcIf->addDebugMessage(mapY, DEC);
+            // cli->addDebugMessage(mapY, DEC);
             // Serial.print("A: ");
-            // PMC_Local::pmcIf->addDebugMessage(Aspeed, DEC);
+            // cli->addDebugMessage(Aspeed, DEC);
             // Serial.print("B: ");
-            // PMC_Local::pmcIf->addDebugMessage(Bspeed, DEC);
+            // cli->addDebugMessage(Bspeed, DEC);
             // Serial.print("C: ");
-            // PMC_Local::pmcIf->addDebugMessage(Cspeed, DEC);
+            // cli->addDebugMessage(Cspeed, DEC);
         }
 
         indx++;
