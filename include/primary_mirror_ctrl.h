@@ -21,16 +21,16 @@ Definitions of Primary Mirror Control functions
 */
 
 /*
-MoveAbsolute(V, X,Y) – Move each axis with velocity V to an absolute X,Y position with respect to “home” 
-MoveRelative(V, X,Y) – Move each axis with velocity V X,Y units from the current position In the above commands, 
+MoveAbsolute(V, X,Y) – Move each axis with velocity V to an absolute X,Y position with respect to “home”
+MoveRelative(V, X,Y) – Move each axis with velocity V X,Y units from the current position In the above commands,
                        V, X and Y are vectors of length 3. Velocity is in units of radians per second, X,Y are milliradians.
-MoveRawAbsolute(V, X,Y) – Move each axis with velocity V to an absolute X,Y position with respect to “home” 
-MoveRawRelative(V, X,Y) – Move each axis with velocity V X,Y units from the current position In the above commands, 
+MoveRawAbsolute(V, X,Y) – Move each axis with velocity V to an absolute X,Y position with respect to “home”
+MoveRawRelative(V, X,Y) – Move each axis with velocity V X,Y units from the current position In the above commands,
                           V, X and Y are vectors of length 3. Velocity is in units of steps per second, X,Y are steps.
-Home(V) – Move all actuators to home positions at velocity V 
-FanSpeed(S) – Set the fan speed to a percentage S of full scale 
-GetStatus() – Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving 
-GetPositions() – Returns 3 step counts 
+Home(V) – Move all actuators to home positions at velocity V
+FanSpeed(S) – Set the fan speed to a percentage S of full scale
+GetStatus() – Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving
+GetPositions() – Returns 3 step counts
 Stop() – Immediately stops all motion
 */
 
@@ -38,12 +38,13 @@ Stop() – Immediately stops all motion
 #define PRIMARY_MIRROR_CONTROL_H
 
 #include <iostream>
-
+#include <TcpCommsService.h>
+#include <TerminalInterface.h>
 // Setup functions
 void hardware_setup();
 void set_thread_ID(int commID, int ctrlID);
 int get_thread_ID(bool commID, bool ctrlID);
-//void connectTerminalInterface(TerminalInterface* _cli);
+// void connectTerminalInterface(TerminalInterface* _cli);
 void handshake(unsigned int val);
 
 void save_current_positions();
@@ -74,21 +75,64 @@ void stop(double lst);
 void jogMirror(double lst);
 void fanSpeed(unsigned int val);
 
+void copyTerminalInterfacePtr(TerminalInterface *_cli);
+void copyCommsServicePtr(LFAST::TcpCommsService *_pCs);
+
+class PrimaryMirrorControl
+{
+    
+};
+
 namespace LFAST
 {
-    enum PMC
+    namespace PMC
     {
-        VELOCITY = 0,
-        TIP = 1,
-        TILT = 2,
-        FOCUS = 3,
-        TYPE = 4,
-        UNITS = 5,
-        ABSOLUTE = 6,
-        RELATIVE = 7,
-        RADSEC = 8, 
-        STEPSEC = 9,
-    };
-}
+        // enum PMC
+        // {
+        //     VELOCITY = 0,
+        //     TIP = 1,
+        //     TILT = 2,
+        //     FOCUS = 3,
+        //     TYPE = 4,
+        //     UNITS = 5,
+        //     ABSOLUTE = 6,
+        //     RELATIVE = 7,
+        //     RADSEC = 8,
+        //     STEPSEC = 9,
+        // };
 
+        enum ControlMode
+        {
+            STOP = 0,
+            RELATIVE = 1,
+            ABSOLUTE = 2
+        };
+
+        enum MoveTypes
+        {
+            ABSOLUTE = 0,
+            RELATIVE = 1
+        };
+
+        enum UNIT_TYPES
+        {
+            ENGINEERING = 0,
+            STEPS_PER_SEC = 1
+        };
+
+        enum AXIS
+        {
+            TIP = 0,
+            TILT = 1,
+            FOCUS = 2
+        };
+
+        enum DIRECTION
+        {
+            REVERSE = -1,
+            FORWARD = 1
+        };
+
+    }
+}
 #endif

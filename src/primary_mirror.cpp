@@ -17,18 +17,19 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 @date October 17, 2022
 @file primary_mirror.cpp
 
-This file contains the firmware code for the LFAST Prototype Primary 
-Mirror Control interface. 
+This file contains the firmware code for the LFAST Prototype Primary
+Mirror Control interface.
 */
 
 #include "primary_mirror_global.h"
 #include "primary_mirror_ctrl.h"
-
-
+#include <TcpCommsService.h>
+#include <TerminalInterface.h>
+#include <teensy41_device.h>
 // Parsing of JSON style command done in network file, for now.
 
 /*
-Features: 
+Features:
 Manual Control: Joystick, Arrow Keys
 
 To Do:
@@ -42,7 +43,7 @@ Threading
 System Recovery
   - Remember positions of stepepr motors in case of ungraceful shutdown. (EEPROM)
 
-fanSpeed Control function 
+fanSpeed Control function
 */
 
 void handshake(unsigned int val);
@@ -53,18 +54,22 @@ TerminalInterface *pmcIf;
 byte myIP[] IPAdd;
 unsigned int mPort = PORT;
 
-
-void control_thread() {
+void control_thread()
+{
   commsService->processClientData("PMCMessage");
   threads.yield();
 }
-void comm_thread() {
 
-  while(1) 
+void comm_thread()
+{
+
+  while (1)
   {
-    if (commsService->checkForNewClients()) {
-      if (commsService->checkForNewClientData()) {
-        Serial.println("New data received.");
+    if (commsService->checkForNewClients())
+    {
+      if (commsService->checkForNewClientData())
+      {
+        pmcIf->addDebugMessage("New data received.");
         set_thread_ID(0, threads.addThread(control_thread));
       }
       commsService->stopDisconnectedClients();
@@ -72,32 +77,38 @@ void comm_thread() {
   }
 }
 
-void setup() 
+void setup()
 {
   Serial.begin(115200);
   hardware_setup();
 
   // Joystick Jogging Enable: INW
-  //pinMode(SW, INPUT_PULLUP); 
+  // pinMode(SW, INPUT_PULLUP);
 
   // Fan PWM Enable
-  
+
   commsService = new LFAST::TcpCommsService(myIP);
   commsService->initializeEnetIface(PORT); // initialize
-  if (!commsService->Status()) {
-        Serial.println("Device Setup Failed.");
-        while (true)
-        {
-            ;
-            ;
-        }
+  pmcIf = new TerminalInterface(PMC_LABEL, &(TEST_SERIAL), TEST_SERIAL_BAUD);
+  commsService->connectTerminalInterface(pmcIf);
+  copyTerminalInterfacePtr(pmcIf);
+  copyCommsServicePtr(commsService);
+
+  if (!commsService->Status())
+  {
+    pmcIf->addDebugMessage("Device Setup Failed.");
+    while (true)
+    {
+      ;
+      ;
+    }
   }
 
   commsService->registerMessageHandler<unsigned int>("Handshake", handshake);
   commsService->registerMessageHandler<double>("FindHome", home);
   commsService->registerMessageHandler<unsigned int>("MoveType", moveType);
   commsService->registerMessageHandler<double>("SetVelocity", changeVel);
-  commsService->registerMessageHandler<unsigned int>("VelUnits", velUnits); 
+  commsService->registerMessageHandler<unsigned int>("VelUnits", velUnits);
   commsService->registerMessageHandler<double>("SetTip", changeTip);
   commsService->registerMessageHandler<double>("SetTilt", changeTilt);
   commsService->registerMessageHandler<double>("SetFocus", changeFocus);
@@ -114,32 +125,23 @@ void setup()
   threads.setDefaultStackSize(6000);
   set_thread_ID(threads.addThread(comm_thread), 0);
 
-/*
-  initHeartbeat();
-  resetHeartbeat();
-  setHeartBeatPeriod(400000);
 
-  pmcIf = new TerminalInterface(PMC_LABEL, &(Serial));
-  connectTerminalInterface(pmcIf);
   pmcIf->addDebugMessage("Initialization complete");
-*/
-
-  Serial.println("Initialization complete");
 }
 
+void loop()
+{
 
-void loop() {
-
-  if (!commsService->Status()) {
-    Serial.println("Reconnecting to network.");
+  if (!commsService->Status())
+  {
+    pmcIf->addDebugMessage("Reconnecting to network.");
     commsService->initializeEnetIface(PORT); // initialize
     while (true)
     {
-        ;
-        ;
+      ;
+      ;
     }
   }
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////

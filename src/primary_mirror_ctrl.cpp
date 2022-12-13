@@ -23,12 +23,17 @@ Implementation of Primary Mirror Control Functions.
 #include "primary_mirror_ctrl.h"
 #include "primary_mirror_global.h"
 #include <iostream>
+#include <TerminalInterface.h>
 
 AccelStepper A(AccelStepper::DRIVER, A_STEP, A_DIR);
 AccelStepper B(AccelStepper::DRIVER, B_STEP, B_DIR);
 AccelStepper C(AccelStepper::DRIVER, C_STEP, C_DIR);
-extern LFAST::TcpCommsService *commsService;
 
+namespace PMC_Local
+{
+    LFAST::TcpCommsService *commsService;
+    TerminalInterface *pmcIf;
+}
 static double velVal = 0.0;
 static double tipVal = 0.0;
 static double tiltVal = 0.0;
@@ -40,7 +45,6 @@ static int unitVal = 0;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////// Motion Control Functions  //////////////////////////////////////
-/////////////////////////////////////////                           //////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void hardware_setup()
@@ -69,17 +73,17 @@ void set_thread_ID(int commID, int ctrlID)
     {
         commthreadID = commID;
         // Serial.print("Comm thread ID set to: ");
-        // Serial.println(commthreadID);
+        // PMC_Local::pmcIf->addDebugMessage(commthreadID);
     }
     else if (commID == 0)
     {
         ctrlthreadID = ctrlID;
         // Serial.print("Ctrl thread ID set to: ");
-        // Serial.println(ctrlthreadID);
+        // PMC_Local::pmcIf->addDebugMessage(ctrlthreadID);
     }
     else
     {
-        // Serial.println("Invalid thread ID.");
+        // PMC_Local::pmcIf->addDebugMessage("Invalid thread ID.");
     }
 }
 
@@ -95,27 +99,30 @@ int get_thread_ID(bool commID, bool ctrlID)
     }
     else
     {
-        // Serial.println("Invalid thread ID requested.");
+        // PMC_Local::pmcIf->addDebugMessage("Invalid thread ID requested.");
         return (0);
     }
 }
-/*
-void connectTerminalInterface(TerminalInterface *_cli)
+
+void copyTerminalInterfacePtr(TerminalInterface *_cli)
 {
-    cli = _cli;
+    PMC_Local::pmcIf = _cli;
 }
-*/
+
+void copyCommsServicePtr(LFAST::TcpCommsService * _pCs)
+{
+    PMC_Local::commsService = _pCs;
+}
 // Handshake function to confirm connection
 void handshake(unsigned int val)
 {
-
     if (val == 0xDEAD)
     {
         LFAST::CommsMessage newMsg;
         newMsg.addKeyValuePair<unsigned int>("Handshake", 0xBEEF);
-        commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-        // std::string msg = "Connected to client.";
-        // mcIf->addDebugMessage(msg);
+        PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+
+        PMC_Local::pmcIf->addDebugMessage("Connected to client.");
     }
     return;
 }
@@ -137,7 +144,7 @@ void moveType(unsigned int type)
     else
     {
         newMsg.addKeyValuePair<unsigned int>("MoveError", 0x0BAD);
-        commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+        PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
         return;
     }
     moveMirror(LFAST::TYPE, move);
@@ -155,22 +162,23 @@ void velUnits(unsigned int units)
 
     if (units == 0)
     { // rad / sec
-        unit = LFAST::RADSEC;
+        unit = LFAST::PMC::ENGINEERING;
     }
     else if (units == 1)
     { // steps / sec
-        unit = LFAST::STEPSEC;
+        unit = LFAST::PMC::STEPS_PER_SEC;
     }
     else
     {
         newMsg.addKeyValuePair<unsigned int>("VelocitySetError", 0x0BAD);
-        commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+        PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
         return;
     }
     moveMirror(LFAST::UNITS, unit);
 }
 void changeTip(double targetTip)
 {
+    // PMC_Local::pmcIf->addDebugMessage("Inside changeTip()");
     moveMirror(LFAST::TIP, targetTip);
 }
 void changeTilt(double targetTilt)
@@ -181,6 +189,7 @@ void changeFocus(double targetFocus)
 {
     moveMirror(LFAST::FOCUS, targetFocus);
 }
+
 void moveMirror(uint8_t axis, double val)
 {
     static bool velUpdated = false;
@@ -221,27 +230,28 @@ void moveMirror(uint8_t axis, double val)
         typeUpdated = true;
     }
     // tip/tilt adustment control parsing
-    if (velUpdated == true && unitUpdated == true && tipUpdated == true && tiltUpdated == true && typeUpdated == true && focusUpdated == false)
+    // if (velUpdated == true && unitUpdated == true && tipUpdated == true && tiltUpdated == true && typeUpdated == true && focusUpdated == false)
+    if (tipUpdated == true || tiltUpdated == true)
     {
 
-        if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::RADSEC))
+        if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::ENGINEERING))
         {
-            Serial.println("moveAbsolute");
+            PMC_Local::pmcIf->addDebugMessage("moveAbsolute");
             moveAbsolute(velVal, tipVal, tiltVal);
         }
-        else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::RADSEC))
+        else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::ENGINEERING))
         {
-            Serial.println("moveRelative");
+            PMC_Local::pmcIf->addDebugMessage("moveRelative");
             moveRelative(velVal, tipVal, tiltVal);
         }
-        else if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::STEPSEC))
+        else if ((typeVal == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::STEPS_PER_SEC))
         {
-            Serial.println("moveRawAbsolute");
+            PMC_Local::pmcIf->addDebugMessage("moveRawAbsolute");
             moveRawAbsolute(velVal, tipVal, tiltVal);
         }
-        else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::STEPSEC))
+        else if ((typeVal == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::STEPS_PER_SEC))
         {
-            Serial.println("moveRawRelative");
+            PMC_Local::pmcIf->addDebugMessage("moveRawRelative");
             moveRawRelative(velVal, tipVal, tiltVal);
         }
         velUpdated = false;
@@ -251,26 +261,27 @@ void moveMirror(uint8_t axis, double val)
         unitUpdated = false;
     }
     // focus adjustment control parsing
-    else if (focusUpdated == true && typeUpdated == true && velUpdated == true && unitUpdated == true)
+    // else if (focusUpdated == true && typeUpdated == true && velUpdated == true && unitUpdated == true)
+    if (focusUpdated == true)
     {
-        if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::RADSEC)
+        if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::ENGINEERING)
         {
-            Serial.println("focusRelative");
+            PMC_Local::pmcIf->addDebugMessage("focusRelative");
             focusRelative(velVal, focusVal);
         }
-        else if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::STEPSEC)
+        else if (typeVal == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::STEPS_PER_SEC)
         {
-            Serial.println("focusRelativeRaw");
+            PMC_Local::pmcIf->addDebugMessage("focusRelativeRaw");
             focusRelativeRaw(velVal, focusVal);
         }
-        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::RADSEC)
+        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::ENGINEERING)
         {
-            Serial.println("focusAbsolute");
+            PMC_Local::pmcIf->addDebugMessage("focusAbsolute");
             focusAbsolute(velVal, focusVal);
         }
-        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::STEPSEC)
+        else if (typeVal == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::ENGINEERING)
         {
-            Serial.println("focusRawAbsolute");
+            PMC_Local::pmcIf->addDebugMessage("focusRawAbsolute");
             focusRawAbsolute(velVal, focusVal);
         }
         velUpdated = false;
@@ -286,7 +297,7 @@ void home(volatile double v)
     digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Finding Home", "$OK^");
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
     A.setSpeed(-v);
     B.setSpeed(-v);
@@ -354,7 +365,7 @@ void moveRawAbsolute(double v, double tip, double tilt)
     digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Absolute", "$OK^");
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
     // Convert x/y inputs to absulute stepper positions relative to zero position (Produces results in mm)
     double Adistance = (281.3 * sin(tip)) / cos(tip);
@@ -428,7 +439,7 @@ void moveRawRelative(double v, double tip, double tilt)
     digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Relative", "$OK^");
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
     // Convert x/y inputs to absulute stepper positions relative to zero position (Produces results in mm)
     double Adistance = (281.3 * sin(tip)) / cos(tip);
@@ -440,9 +451,9 @@ void moveRawRelative(double v, double tip, double tilt)
     int Bsteps = Bdistance / (MM_PER_STEP);
     int Csteps = Cdistance / (MM_PER_STEP);
 
-    Serial.println(Asteps);
-    Serial.println(Bsteps);
-    Serial.println(Csteps);
+    char debugMsg[100]{0};
+    sprintf(debugMsg, "A Steps: %d\tB Steps: %d\tC Steps: %d", Asteps,Bsteps,Csteps);
+    PMC_Local::pmcIf->addDebugMessage(debugMsg);
 
     A.moveTo(A.currentPosition() + Asteps);
     if (Asteps < 0)
@@ -471,23 +482,19 @@ void moveRawRelative(double v, double tip, double tilt)
     {
         C.setSpeed(v);
     }
-
-    Serial.print("A: ");
-    Serial.println(A.distanceToGo());
-    Serial.print("B: ");
-    Serial.println(B.distanceToGo());
-    Serial.print("C: ");
-    Serial.println(C.distanceToGo());
+    std::memset(debugMsg, 0, sizeof(debugMsg));
+    sprintf(debugMsg, "To Go: A: %ld\tB: %ld\tC: %ld", A.distanceToGo(),B.distanceToGo(),C.distanceToGo());
+    PMC_Local::pmcIf->addDebugMessage(debugMsg);
 
     while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0))
     {
         /*
         Serial.print("A: ");
-        Serial.println(A.distanceToGo());
+        PMC_Local::pmcIf->addDebugMessage(A.distanceToGo());
         Serial.print("B: ");
-        Serial.println(B.distanceToGo());
+        PMC_Local::pmcIf->addDebugMessage(B.distanceToGo());
         Serial.print("C: ");
-        Serial.println(C.distanceToGo());*/
+        PMC_Local::pmcIf->addDebugMessage(C.distanceToGo());*/
 
         if (A.distanceToGo() != 0)
         {
@@ -519,7 +526,7 @@ void focusRelativeRaw(double v, double z)
     digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Adjusting focus Relative.", "$OK^");
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
     // Convert Distance to steps 3um per step??
     // z is in microns??
@@ -570,7 +577,7 @@ void focusRawAbsolute(double v, double z)
     digitalWrite(STEP_ENABLE_PIN, LOW);
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Adjusting focus absolute.", "$OK^");
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
     // get z position of actuators in steps (x, y positions are fixed)
     int zA, zB, zC, zf;
@@ -599,11 +606,11 @@ void focusRawAbsolute(double v, double z)
     }
 
     // Difference between desired position and actual position to determine movement amount
-    Serial.println(z);
+    // PMC_Local::pmcIf->addDebugMessage(z);
     int move = z - zf;
     // convert micron movement back to steps
     move = move / MICRON_PER_STEP; // microns * (1 step / 3 microns)
-    Serial.println(move);
+    // PMC_Local::pmcIf->addDebugMessage(move);
 
     // Equally adust desired actuator movement given desired focus position
     A.moveTo(A.currentPosition() + move);
@@ -646,7 +653,7 @@ void getStatus(double lst)
     newMsg.addKeyValuePair<bool>("ARunning?", A_status);
     newMsg.addKeyValuePair<bool>("BRunning?", B_status);
     newMsg.addKeyValuePair<bool>("CRunning?", C_status);
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 }
 
 // Returns 3 step counts
@@ -662,7 +669,7 @@ void getPositions(double lst)
     newMsg.addKeyValuePair<double>("APosition", A_position);
     newMsg.addKeyValuePair<double>("BPosition", B_position);
     newMsg.addKeyValuePair<double>("CPosition", C_position);
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 }
 
 // Immediately stops all motion
@@ -683,7 +690,7 @@ void stop(double lst)
 
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<std::string>("Stopped", "$OK^");
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    PMC_Local::commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 }
 
 // Set the fan speed to a percentage S of full scale
@@ -758,20 +765,20 @@ void jogMirror(double lst)
 
         if (!(indx % 1000))
         {
-            Serial.print("X: ");
-            Serial.println(xValue, DEC);
-            Serial.print("Y: ");
-            Serial.println(yValue, DEC);
-            Serial.print("mapX: ");
-            Serial.println(mapX, DEC);
-            Serial.print("mapY: ");
-            Serial.println(mapY, DEC);
-            Serial.print("A: ");
-            Serial.println(Aspeed, DEC);
-            Serial.print("B: ");
-            Serial.println(Bspeed, DEC);
-            Serial.print("C: ");
-            Serial.println(Cspeed, DEC);
+            // Serial.print("X: ");
+            // PMC_Local::pmcIf->addDebugMessage(xValue, DEC);
+            // Serial.print("Y: ");
+            // PMC_Local::pmcIf->addDebugMessage(yValue, DEC);
+            // Serial.print("mapX: ");
+            // PMC_Local::pmcIf->addDebugMessage(mapX, DEC);
+            // Serial.print("mapY: ");
+            // PMC_Local::pmcIf->addDebugMessage(mapY, DEC);
+            // Serial.print("A: ");
+            // PMC_Local::pmcIf->addDebugMessage(Aspeed, DEC);
+            // Serial.print("B: ");
+            // PMC_Local::pmcIf->addDebugMessage(Bspeed, DEC);
+            // Serial.print("C: ");
+            // PMC_Local::pmcIf->addDebugMessage(Cspeed, DEC);
         }
 
         indx++;
