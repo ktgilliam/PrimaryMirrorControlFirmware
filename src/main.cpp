@@ -142,6 +142,8 @@ void setup()
   threads.setDefaultStackSize(6000);
   commthreadID = threads.addThread(comm_thread);
 
+  // pPmc->resetPositionsInEeprom();
+  pPmc->loadCurrentPositionsFromEeprom();
   cli->printDebugMessage("Initialization complete");
 }
 

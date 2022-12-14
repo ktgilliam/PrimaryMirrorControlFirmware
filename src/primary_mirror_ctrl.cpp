@@ -32,14 +32,14 @@ Implementation of Primary Mirror Control Functions.
 #include "primary_mirror_global.h"
 #include "teensy41_device.h"
 
-#include <AccelStepper.h>
 #include <MultiStepper.h>
+#include <AccelStepper.h>
 
 AccelStepper Stepper_A(AccelStepper::DRIVER, A_STEP, A_DIR);
 AccelStepper Stepper_B(AccelStepper::DRIVER, B_STEP, B_DIR);
 AccelStepper Stepper_C(AccelStepper::DRIVER, C_STEP, C_DIR);
-
-
+// MultiStepper steppers;
+MultiStepper steppers;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////// Motion Control Functions  //////////////////////////////////////
@@ -49,7 +49,6 @@ using namespace LFAST;
 PrimaryMirrorControl::PrimaryMirrorControl()
 {
     controlMode = LFAST::PMC::STOP;
-    loadCurrentPositionsFromEeprom();
     hardware_setup();
 }
 
@@ -61,28 +60,27 @@ PrimaryMirrorControl &PrimaryMirrorControl::getMirrorController()
 
 void PrimaryMirrorControl::hardware_setup()
 {
-    stepperControl = new MultiStepper();
-
+    
     // Initialize motors + limit switches
     Stepper_A.setMaxSpeed(800.0);     // Steps per second
     Stepper_A.setAcceleration(100.0); // Steps per second per second
-    stepperControl->addStepper(Stepper_A);
+    steppers.addStepper(Stepper_A);
     pinMode(A_LIM, INPUT_PULLUP);
 
     Stepper_B.setMaxSpeed(800.0);
     Stepper_B.setAcceleration(100.0);
-    stepperControl->addStepper(Stepper_B);
+    steppers.addStepper(Stepper_B);
     pinMode(B_LIM, INPUT_PULLUP);
 
     Stepper_C.setMaxSpeed(800.0);
     Stepper_C.setAcceleration(100.0);
-    stepperControl->addStepper(Stepper_C);
+    steppers.addStepper(Stepper_C);
     pinMode(C_LIM, INPUT_PULLUP);
 
     // Global stepper enable pin, high to diable drivers
     pinMode(STEP_ENABLE_PIN, OUTPUT);
-    digitalWrite(STEP_ENABLE_PIN, HIGH);
-
+    // digitalWrite(STEP_ENABLE_PIN, DISABLE_STEPPER);
+    digitalWrite(STEP_ENABLE_PIN, ENABLE_STEPPER);
 }
 
 void PrimaryMirrorControl::setupPersistentFields()
@@ -96,6 +94,13 @@ void PrimaryMirrorControl::setupPersistentFields()
     cli->addPersistentField(this->DeviceName, "[TILT]", TILT_ROW);
     cli->addPersistentField(this->DeviceName, "[FOCUS]", FOCUS_ROW);
 }
+
+void PrimaryMirrorControl::updatePersistentFields()
+{
+    cli->updatePersistentField(DeviceName, TIP_ROW, CommandStates_Eng.TIP_POS_ENG);
+    cli->updatePersistentField(DeviceName, TILT_ROW, CommandStates_Eng.TILT_POS_ENG);
+    cli->updatePersistentField(DeviceName, FOCUS_ROW, CommandStates_Eng.FOCUS_POS_ENG);
+}
 // Functions to update necessary control variables
 
 void PrimaryMirrorControl::moveMirror()
@@ -103,11 +108,10 @@ void PrimaryMirrorControl::moveMirror()
     // tip/tilt adustment control parsing
     if (tipUpdated == true || tiltUpdated == true || focusUpdated == true)
     {
+
+        cli->printfDebugMessage("moveMirror() [Tip/Tilt/Focus] = %6.4f, %6.4f, %6.4f", CommandStates_Eng.TIP_POS_ENG, CommandStates_Eng.TILT_POS_ENG, CommandStates_Eng.FOCUS_POS_ENG);
         moveSteppers();
-        cli->printfDebugMessage("[Tip/Tilt/Focus] = %6.4f, %6.4f, %6.4f", CommandStates_Eng.TIP_POS_ENG, CommandStates_Eng.TILT_POS_ENG, CommandStates_Eng.FOCUS_POS_ENG);
-        cli->updatePersistentField(DeviceName, TIP_ROW, CommandStates_Eng.TIP_POS_ENG);
-        cli->updatePersistentField(DeviceName, TILT_ROW, CommandStates_Eng.TILT_POS_ENG);
-        cli->updatePersistentField(DeviceName, FOCUS_ROW, CommandStates_Eng.FOCUS_POS_ENG);
+        updatePersistentFields();
     }
 }
 
@@ -120,21 +124,21 @@ void PrimaryMirrorControl::setTipTarget(double tgt)
 {
     CommandStates_Eng.TIP_POS_ENG = tgt;
     tipUpdated = true;
-    cli->printfDebugMessage("TargetTip = %6.4f", CommandStates_Eng.TIP_POS_ENG);
+    // cli->printfDebugMessage("TargetTip = %6.4f", CommandStates_Eng.TIP_POS_ENG);
 }
 
 void PrimaryMirrorControl::setTiltTarget(double tgt)
 {
     CommandStates_Eng.TILT_POS_ENG = tgt;
     tiltUpdated = true;
-    cli->printfDebugMessage("TargetTilt = %6.4f", CommandStates_Eng.TILT_POS_ENG);
+    // cli->printfDebugMessage("TargetTilt = %6.4f", CommandStates_Eng.TILT_POS_ENG);
 }
 
 void PrimaryMirrorControl::setFocusTarget(double tgt)
 {
     CommandStates_Eng.FOCUS_POS_ENG = tgt;
     focusUpdated = true;
-    cli->printfDebugMessage("TargetFocus = %6.4f", CommandStates_Eng.FOCUS_POS_ENG);
+    // cli->printfDebugMessage("TargetFocus = %6.4f", CommandStates_Eng.FOCUS_POS_ENG);
 }
 
 // Set the fan speed to a percentage S of full scale
@@ -162,7 +166,7 @@ void PrimaryMirrorControl::moveSteppers()
 {
     if(tipUpdated && tiltUpdated && focusUpdated)
     {
-    digitalWrite(STEP_ENABLE_PIN, ENABLE_STEPPER);
+    
     // Convert Distance to steps (0.003mm per step??)
     int32_t A_cmdSteps = 0;
     int32_t B_cmdSteps = 0;
@@ -177,9 +181,11 @@ void PrimaryMirrorControl::moveSteppers()
         C_cmdSteps += Stepper_C.currentPosition();
     }
 
+    cli->printfDebugMessage("moveSteppers()[A/B/C]: %d, %d, %d", A_cmdSteps, B_cmdSteps, C_cmdSteps);
     long stepperCmdVector[3]{A_cmdSteps, B_cmdSteps, C_cmdSteps};
-    stepperControl->moveTo(stepperCmdVector);
-    digitalWrite(STEP_ENABLE_PIN, DISABLE_STEPPER);
+    steppers.moveTo(stepperCmdVector);
+    steppers.runSpeedToPosition();
+    // digitalWrite(STEP_ENABLE_PIN, DISABLE_STEPPER);
     saveCurrentPositionsToEeprom();
     }
 }
@@ -268,12 +274,23 @@ void PrimaryMirrorControl::saveCurrentPositionsToEeprom()
     int Aposition = Stepper_A.currentPosition();
     int Bposition = Stepper_B.currentPosition();
     int Cposition = Stepper_C.currentPosition();
-
+    cli->printfDebugMessage("EEPROM Write [A/B/C]: %d, %d, %d", Aposition, Bposition, Cposition);
     EEPROM.put(eeAddr, Aposition);
     eeAddr += sizeof(Aposition); // Move address to the next byte after float 'f'.
     EEPROM.put(eeAddr, Bposition);
     eeAddr += sizeof(Bposition); // Move address to the next byte after float 'f'.
     EEPROM.put(eeAddr, Cposition);
+}
+
+void PrimaryMirrorControl::resetPositionsInEeprom()
+{
+    unsigned int eeAddr = 1;
+    EEPROM.put(eeAddr, 0);
+    eeAddr += sizeof(int); // Move address to the next byte after float 'f'.
+    EEPROM.put(eeAddr, 0);
+    eeAddr += sizeof(int); // Move address to the next byte after float 'f'.
+    EEPROM.put(eeAddr, 0);
+    cli->printDebugMessage("Resetting eeprom positions", LFAST::WARNING);
 }
 
 void PrimaryMirrorControl::loadCurrentPositionsFromEeprom()
@@ -289,6 +306,7 @@ void PrimaryMirrorControl::loadCurrentPositionsFromEeprom()
     eeAddr += sizeof(Bposition); // Move address to the next byte after float 'f'.
     EEPROM.get(eeAddr, Cposition);
 
+    cli->printfDebugMessage("EEPROM Load [A/B/C]: %d, %d, %d", Aposition, Bposition, Cposition);
     Stepper_A.setCurrentPosition(Aposition);
     Stepper_B.setCurrentPosition(Bposition);
     Stepper_C.setCurrentPosition(Cposition);

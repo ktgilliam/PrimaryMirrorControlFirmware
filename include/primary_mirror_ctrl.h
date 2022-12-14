@@ -144,6 +144,7 @@ namespace LFAST
 
         virtual ~PrimaryMirrorControl() {}
         void setupPersistentFields() override;
+        void updatePersistentFields();
         void moveMirror();
         void setControlMode(uint8_t moveType);
         void setFanSpeed(unsigned int PWR);
@@ -155,12 +156,15 @@ namespace LFAST
         bool getStatus(uint8_t motor);
         double getPosition(uint8_t motor);
         
+        void saveCurrentPositionsToEeprom();
+        void resetPositionsInEeprom();
+        void loadCurrentPositionsFromEeprom();
+
+        
     private:
         PrimaryMirrorControl();
         void hardware_setup();
         void moveSteppers();
-        void saveCurrentPositionsToEeprom();
-        void loadCurrentPositionsFromEeprom();
 
         MultiStepper *stepperControl;
         MirrorStates CommandStates_Eng;
