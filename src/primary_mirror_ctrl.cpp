@@ -54,7 +54,7 @@ void LFAST::enableControlLoopInterrupt()
 void LFAST::updateControlLoop_ISR()
 {
     LFAST::PrimaryMirrorControl &pmc = LFAST::PrimaryMirrorControl::getMirrorController();
-    // pmc.cli->addDebugMessage("inside interrupt");
+    // pmc.cli->printDebugMessage("inside interrupt");
     pmc.moveMirror();
 }
 
@@ -108,7 +108,7 @@ void PrimaryMirrorControl::moveMirror()
 {
     // if (cli != nullptr)
     // {
-    //     cli->addDebugMessage("moving mirror");
+    //     cli->printDebugMessage("moving mirror");
     // }
     // else
     // {
@@ -119,22 +119,22 @@ void PrimaryMirrorControl::moveMirror()
     {
         if ((controlMode == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::ENGINEERING))
         {
-            cli->addDebugMessage("moveAbsolute");
+            cli->printDebugMessage("moveAbsolute");
             moveAbsolute(velVal, tipVal, tiltVal);
         }
         else if ((controlMode == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::ENGINEERING))
         {
-            cli->addDebugMessage("moveRelative");
+            cli->printDebugMessage("moveRelative");
             moveRelative(velVal, tipVal, tiltVal);
         }
         else if ((controlMode == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::STEPS_PER_SEC))
         {
-            cli->addDebugMessage("moveRawAbsolute");
+            cli->printDebugMessage("moveRawAbsolute");
             moveRawAbsolute(velVal, tipVal, tiltVal);
         }
         else if ((controlMode == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::STEPS_PER_SEC))
         {
-            cli->addDebugMessage("moveRawRelative");
+            cli->printDebugMessage("moveRawRelative");
             moveRawRelative(velVal, tipVal, tiltVal);
         }
         tipUpdated = false;
@@ -146,22 +146,22 @@ void PrimaryMirrorControl::moveMirror()
     {
         if (controlMode == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::ENGINEERING)
         {
-            cli->addDebugMessage("focusRelative");
+            cli->printDebugMessage("focusRelative");
             focusRelative(velVal, focusVal);
         }
         else if (controlMode == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::STEPS_PER_SEC)
         {
-            cli->addDebugMessage("focusRelativeRaw");
+            cli->printDebugMessage("focusRelativeRaw");
             focusRelativeRaw(velVal, focusVal);
         }
         else if (controlMode == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::ENGINEERING)
         {
-            cli->addDebugMessage("focusAbsolute");
+            cli->printDebugMessage("focusAbsolute");
             focusAbsolute(velVal, focusVal);
         }
         else if (controlMode == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::ENGINEERING)
         {
-            cli->addDebugMessage("focusRawAbsolute");
+            cli->printDebugMessage("focusRawAbsolute");
             focusRawAbsolute(velVal, focusVal);
         }
         focusUpdated = false;
@@ -402,7 +402,7 @@ void PrimaryMirrorControl::moveRawRelative(double v, double tip, double tilt)
 
     char debugMsg[100]{0};
     sprintf(debugMsg, "A Steps: %d\tB Steps: %d\tC Steps: %d", Asteps, Bsteps, Csteps);
-    cli->addDebugMessage(debugMsg);
+    cli->printDebugMessage(debugMsg);
 
     A.moveTo(A.currentPosition() + Asteps);
     if (Asteps < 0)
@@ -434,7 +434,7 @@ void PrimaryMirrorControl::moveRawRelative(double v, double tip, double tilt)
 
     std::memset(debugMsg, 0, sizeof(debugMsg));
     sprintf(debugMsg, "To Go: A: %ld\tB: %ld\tC: %ld", A.distanceToGo(), B.distanceToGo(), C.distanceToGo());
-    cli->addDebugMessage(debugMsg);
+    cli->printDebugMessage(debugMsg);
 
     while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0))
     {
@@ -549,11 +549,11 @@ void PrimaryMirrorControl::focusRawAbsolute(double v, double z)
     }
 
     // Difference between desired position and actual position to determine movement amount
-    // cli->addDebugMessage(z);
+    // cli->printDebugMessage(z);
     int move = z - zf;
     // convert micron movement back to steps
     move = move / MICRON_PER_STEP; // microns * (1 step / 3 microns)
-    // cli->addDebugMessage(move);
+    // cli->printDebugMessage(move);
 
     // Equally adust desired actuator movement given desired focus position
     A.moveTo(A.currentPosition() + move);
@@ -649,19 +649,19 @@ void PrimaryMirrorControl::jogMirror(double lst)
         if (!(indx % 1000))
         {
             // Serial.print("X: ");
-            // cli->addDebugMessage(xValue, DEC);
+            // cli->printDebugMessage(xValue, DEC);
             // Serial.print("Y: ");
-            // cli->addDebugMessage(yValue, DEC);
+            // cli->printDebugMessage(yValue, DEC);
             // Serial.print("mapX: ");
-            // cli->addDebugMessage(mapX, DEC);
+            // cli->printDebugMessage(mapX, DEC);
             // Serial.print("mapY: ");
-            // cli->addDebugMessage(mapY, DEC);
+            // cli->printDebugMessage(mapY, DEC);
             // Serial.print("A: ");
-            // cli->addDebugMessage(Aspeed, DEC);
+            // cli->printDebugMessage(Aspeed, DEC);
             // Serial.print("B: ");
-            // cli->addDebugMessage(Bspeed, DEC);
+            // cli->printDebugMessage(Bspeed, DEC);
             // Serial.print("C: ");
-            // cli->addDebugMessage(Cspeed, DEC);
+            // cli->printDebugMessage(Cspeed, DEC);
         }
 
         indx++;

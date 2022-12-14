@@ -71,7 +71,7 @@ void stop(double lst);
 void fanSpeed(unsigned int val);
 
 LFAST::TcpCommsService *commsService;
-LFAST::PrimaryMirrorControl  *pPmc;
+LFAST::PrimaryMirrorControl *pPmc;
 TerminalInterface *cli;
 int commthreadID;
 int ctrlthreadID;
@@ -94,7 +94,7 @@ void comm_thread()
     {
       if (commsService->checkForNewClientData())
       {
-        // pmcIf->addDebugMessage("New data received.");
+        // pmcIf->printDebugMessage("New data received.");
         set_thread_ID(0, threads.addThread(control_thread));
       }
       commsService->stopDisconnectedClients();
@@ -108,17 +108,17 @@ void set_thread_ID(int commID, int ctrlID)
   {
     commthreadID = commID;
     // Serial.print("Comm thread ID set to: ");
-    // pmcIf->addDebugMessage(commthreadID);
+    // pmcIf->printDebugMessage(commthreadID);
   }
   else if (commID == 0)
   {
     ctrlthreadID = ctrlID;
     // Serial.print("Ctrl thread ID set to: ");
-    // pmcIf->addDebugMessage(ctrlthreadID);
+    // pmcIf->printDebugMessage(ctrlthreadID);
   }
   else
   {
-    // pmcIf->addDebugMessage("Invalid thread ID.");
+    // pmcIf->printDebugMessage("Invalid thread ID.");
   }
 }
 
@@ -134,7 +134,7 @@ int get_thread_ID(bool commID, bool ctrlID)
   }
   else
   {
-    // pmcIf->addDebugMessage("Invalid thread ID requested.");
+    // pmcIf->printDebugMessage("Invalid thread ID requested.");
     return (0);
   }
 }
@@ -152,13 +152,12 @@ void setup()
   commsService->connectTerminalInterface(cli, "Comms");
   pPmc->connectTerminalInterface(cli, "pmc");
   cli->printPersistentFieldLabels();
-  // while(1){;}
-  
+
   commsService->initializeEnetIface(PORT); // initialize
 
   if (!commsService->Status())
   {
-    cli->addDebugMessage("Device Setup Failed.");
+    cli->printDebugMessage("Device Setup Failed.");
     while (true)
     {
       ;
@@ -188,7 +187,7 @@ void setup()
   set_thread_ID(threads.addThread(comm_thread), 0);
 
   LFAST::enableControlLoopInterrupt();
-  cli->addDebugMessage("Initialization complete");
+  cli->printDebugMessage("Initialization complete");
 }
 
 void loop()
@@ -196,7 +195,7 @@ void loop()
 
   if (!commsService->Status())
   {
-    cli->addDebugMessage("Reconnecting to network.");
+    cli->printDebugMessage("Reconnecting to network.");
     commsService->initializeEnetIface(PORT); // initialize
     while (true)
     {
@@ -216,7 +215,7 @@ void handshake(unsigned int val)
     newMsg.addKeyValuePair<unsigned int>("Handshake", 0xBEEF);
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 
-    cli->addDebugMessage("Connected to client.");
+    cli->printDebugMessage("Connected to client.");
   }
   return;
 }
