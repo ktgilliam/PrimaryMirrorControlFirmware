@@ -56,8 +56,6 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #define SUBNET  0,0,0,0
 #define PORT    1883//4400
 
-#define MIRROR_RADIUS 281880  // Radius of mirror actuator positions in um 
-#define MICRON_PER_STEP 3   //conversion factor of stepper motor steps to vertical movement in um
-#define MM_PER_STEP 0.003 
+
 
 #endif

@@ -23,23 +23,27 @@ Implementation of Primary Mirror Control Functions.
 #include "primary_mirror_ctrl.h"
 #include <Arduino.h>
 #include <EEPROM.h>
-#include <AccelStepper.h>
-#include <MultiStepper.h>
 #include <cstring>
 #include <TimerOne.h>
-
-#include "primary_mirror_global.h"
-
+#include <cmath>
+#include <cinttypes>
 #include <iostream>
 #include <TerminalInterface.h>
-
+#include <math_util.h>
+#include "primary_mirror_global.h"
 #include "teensy41_device.h"
 
-AccelStepper A(AccelStepper::DRIVER, A_STEP, A_DIR);
-AccelStepper B(AccelStepper::DRIVER, B_STEP, B_DIR);
-AccelStepper C(AccelStepper::DRIVER, C_STEP, C_DIR);
+#include <AccelStepper.h>
+#include <MultiStepper.h>
 
-const unsigned long int updatePrd_us = 1000;
+AccelStepper Stepper_A(AccelStepper::DRIVER, A_STEP, A_DIR);
+AccelStepper Stepper_B(AccelStepper::DRIVER, B_STEP, B_DIR);
+AccelStepper Stpper_C(AccelStepper::DRIVER, C_STEP, C_DIR);
+
+MultiStepper stepperControl();
+
+const unsigned long int updatePrd_us = 100;
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////// Motion Control Functions  //////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -74,16 +78,16 @@ PrimaryMirrorControl &PrimaryMirrorControl::getMirrorController()
 void PrimaryMirrorControl::hardware_setup()
 {
     // Initialize motors + limit switches
-    A.setMaxSpeed(800.0);     // Steps per second
-    A.setAcceleration(100.0); // Steps per second per second
+    Stepper_A.setMaxSpeed(800.0);     // Steps per second
+    Stepper_A.setAcceleration(100.0); // Steps per second per second
     pinMode(A_LIM, INPUT_PULLUP);
 
-    B.setMaxSpeed(800.0);
-    B.setAcceleration(100.0);
+    Stepper_B.setMaxSpeed(800.0);
+    Stepper_B.setAcceleration(100.0);
     pinMode(B_LIM, INPUT_PULLUP);
 
-    C.setMaxSpeed(800.0);
-    C.setAcceleration(100.0);
+    Stpper_C.setMaxSpeed(800.0);
+    Stpper_C.setAcceleration(100.0);
     pinMode(C_LIM, INPUT_PULLUP);
 
     // Global stepper enable pin, high to diable drivers
@@ -106,71 +110,30 @@ void PrimaryMirrorControl::setupPersistentFields()
 
 void PrimaryMirrorControl::moveMirror()
 {
-    // if (cli != nullptr)
-    // {
-    //     cli->printDebugMessage("moving mirror");
-    // }
-    // else
-    // {
-    //     TEST_SERIAL.println("no cli");
-    // }
     // tip/tilt adustment control parsing
-    if (tipUpdated == true || tiltUpdated == true)
+    if (tipUpdated == true || tiltUpdated == true || focusUpdated == true)
     {
-        if ((controlMode == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::ENGINEERING))
+        if (unitVal == LFAST::PMC::ENGINEERING)
         {
-            cli->printDebugMessage("moveAbsolute");
-            moveAbsolute(velVal, tipVal, tiltVal);
-        }
-        else if ((controlMode == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::ENGINEERING))
-        {
-            cli->printDebugMessage("moveRelative");
-            moveRelative(velVal, tipVal, tiltVal);
-        }
-        else if ((controlMode == LFAST::PMC::ABSOLUTE) && (unitVal == LFAST::PMC::STEPS_PER_SEC))
-        {
-            cli->printDebugMessage("moveRawAbsolute");
-            moveRawAbsolute(velVal, tipVal, tiltVal);
-        }
-        else if ((controlMode == LFAST::PMC::RELATIVE) && (unitVal == LFAST::PMC::STEPS_PER_SEC))
-        {
-            cli->printDebugMessage("moveRawRelative");
-            moveRawRelative(velVal, tipVal, tiltVal);
+            if (controlMode == LFAST::PMC::ABSOLUTE)
+            {
+                cli->printDebugMessage("moveAbsolute");
+                moveMirror();
+            }
+            else if (controlMode == LFAST::PMC::RELATIVE)
+            {
+                cli->printDebugMessage("moveRelative");
+                moveRelative();
+            }
         }
         tipUpdated = false;
         tiltUpdated = false;
-    }
-    // focus adjustment control parsing
-    // else if (focusUpdated == true && modeUpdated == true && velUpdated == true && unitUpdated == true)
-    if (focusUpdated == true)
-    {
-        if (controlMode == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::ENGINEERING)
-        {
-            cli->printDebugMessage("focusRelative");
-            focusRelative(velVal, focusVal);
-        }
-        else if (controlMode == LFAST::PMC::RELATIVE && unitVal == LFAST::PMC::STEPS_PER_SEC)
-        {
-            cli->printDebugMessage("focusRelativeRaw");
-            focusRelativeRaw(velVal, focusVal);
-        }
-        else if (controlMode == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::ENGINEERING)
-        {
-            cli->printDebugMessage("focusAbsolute");
-            focusAbsolute(velVal, focusVal);
-        }
-        else if (controlMode == LFAST::PMC::ABSOLUTE && unitVal == LFAST::PMC::ENGINEERING)
-        {
-            cli->printDebugMessage("focusRawAbsolute");
-            focusRawAbsolute(velVal, focusVal);
-        }
-        focusUpdated = false;
     }
 }
 
 void PrimaryMirrorControl::setVelocity(double vel)
 {
-    velVal = vel;
+    CommandStates_Eng.MOVE_SPEED_ENG = vel;
 }
 
 void PrimaryMirrorControl::setControlMode(uint8_t mode)
@@ -185,21 +148,22 @@ void PrimaryMirrorControl::setVelUnits(uint8_t velUnits)
 
 void PrimaryMirrorControl::setTipTarget(double tgt)
 {
-    tipVal = tgt;
+    CommandStates_Eng.TIP_POS_ENG = tgt;
     tipUpdated = true;
 }
 
 void PrimaryMirrorControl::setTiltTarget(double tgt)
 {
-    tiltVal = tgt;
+    CommandStates_Eng.TILT_POS_ENG = tgt;
     tiltUpdated = true;
 }
 
 void PrimaryMirrorControl::setFocusTarget(double tgt)
 {
-    focusVal = tgt;
+    CommandStates_Eng.FOCUS_POS_ENG = tgt;
     focusUpdated = true;
 }
+
 // Set the fan speed to a percentage S of full scale
 // Fan Pin unknown?
 void PrimaryMirrorControl::setFanSpeed(unsigned int PWR)
@@ -207,311 +171,71 @@ void PrimaryMirrorControl::setFanSpeed(unsigned int PWR)
     analogWrite(FAN_CONTROL, PWR);
 }
 
-bool PrimaryMirrorControl::getStatus(uint8_t motor)
-{
-    if (motor == LFAST::PMC::MOTOR_A)
-        return A.isRunning(); // Checks to see if the motor is currently running to a target
-    else if (motor == LFAST::PMC::MOTOR_B)
-        return B.isRunning(); // true if the speed is not zero or not at the target position
-    else if (motor == LFAST::PMC::MOTOR_C)
-        return C.isRunning();
-    else
-        return false;
-}
-
-double PrimaryMirrorControl::getPosition(uint8_t motor)
-{
-    if (motor == LFAST::PMC::MOTOR_A)
-        return A.currentPosition(); // Checks to see if the motor is currently running to a target
-    else if (motor == LFAST::PMC::MOTOR_B)
-        return B.currentPosition(); // true if the speed is not zero or not at the target position
-    else if (motor == LFAST::PMC::MOTOR_C)
-        return C.currentPosition();
-    else
-        return 0.0;
-}
-
 // Immediately stops all motion
 void PrimaryMirrorControl::stopNow()
 {
     digitalWrite(STEP_ENABLE_PIN, HIGH);
-    A.stop();
-    B.stop();
-    C.stop();
+    Stepper_A.stop();
+    Stepper_B.stop();
+    Stpper_C.stop();
 
     save_current_positions();
-}
-
-// Move all actuators to home positions at velocity V (steps/sec)
-void PrimaryMirrorControl::goHome(volatile double v)
-{
-    digitalWrite(STEP_ENABLE_PIN, LOW);
-    A.setSpeed(-v);
-    B.setSpeed(-v);
-    C.setSpeed(-v);
-    // Retract motors until they reach limit switches
-    while ((digitalRead(A_LIM)) || (digitalRead(B_LIM)) || (digitalRead(C_LIM)))
-    {
-
-        if ((digitalRead(A_LIM)))
-        {
-            A.runSpeed();
-        }
-        if ((digitalRead(B_LIM)))
-        {
-            B.runSpeed();
-        }
-        if ((digitalRead(C_LIM)))
-        {
-            C.runSpeed();
-        }
-    }
-
-    // Time to allow limit switch to settle
-    delay(1);
-    A.setSpeed(v);
-    B.setSpeed(v);
-    C.setSpeed(v);
-    // Deploy motors until limit switches deactivate
-    while (!(digitalRead(A_LIM)) || !(digitalRead(B_LIM)) || !(digitalRead(C_LIM)))
-    {
-
-        if (!(digitalRead(A_LIM)))
-        {
-            A.runSpeed();
-        }
-        if (!(digitalRead(B_LIM)))
-        {
-            B.runSpeed();
-        }
-        if (!(digitalRead(C_LIM)))
-        {
-            C.runSpeed();
-        }
-    }
-    digitalWrite(STEP_ENABLE_PIN, HIGH);
-    A.setCurrentPosition(0);
-    B.setCurrentPosition(0);
-    C.setCurrentPosition(0);
-    save_current_positions();
-}
-
-// Move each axis with velocity V to an absolute X,Y position with respect to “home”
-// Velocity input as rad/ sec, converted to steps / sec
-void PrimaryMirrorControl::moveAbsolute(double v, double tip, double tilt)
-{
-    // Convert v (rad / second) to steps / second
-    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
-    moveRawAbsolute(v, tip, tilt);
 }
 
 // Move each axis with velocity V to an absolute X,Y position with respect to “home”
 // V, X and Y are vectors of length 3. Velocity is in units of steps per second, X,Y are steps.
 // Velocity input as steps / sec
-void PrimaryMirrorControl::moveRawAbsolute(double v, double tip, double tilt)
+void PrimaryMirrorControl::moveMirror()
 {
     digitalWrite(STEP_ENABLE_PIN, LOW);
-    // LFAST::CommsMessage newMsg;
-    // newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Absolute", "$OK^");
-    // commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-
-    // Convert x/y inputs to absulute stepper positions relative to zero position (Produces results in mm)
-    double Adistance = (281.3 * sin(tip)) / cos(tip);
-    double Bdistance = (0.004 * (60900.0 * sin(tilt) - 35160.0 * cos(tilt) * sin(tip))) / (cos(tip) * cos(tilt));
-    double Cdistance = (-0.004 * (60900.0 * sin(tilt) + 35160.0 * cos(tilt) * sin(tip))) / (cos(tip) * cos(tilt));
 
     // Convert Distance to steps (0.003mm per step??)
-    int Asteps = Adistance / (MM_PER_STEP);
-    int Bsteps = Bdistance / (MM_PER_STEP);
-    int Csteps = Cdistance / (MM_PER_STEP);
+    int32_t A_cmdSteps = 0;
+    int32_t B_cmdSteps = 0;
+    int32_t C_cmdSteps = 0;
+    int32_t v_cmdStepsPerSec = 0;
+    CommandStates_Eng.getMotorPosnCommands(&A_cmdSteps, &B_cmdSteps, &C_cmdSteps);
+    CommandStates_Eng.getMotorSpeedCommand(&v_cmdStepsPerSec);
 
-    // Set directions based on desired positions relative to current positions of steppers.
-    if (A.currentPosition() > Asteps)
+    if (controlMode == PMC::ABSOLUTE)
     {
-        A.setSpeed(-v);
+        float A_errorSteps = (float)A_cmdSteps - Stepper_A.currentPosition();
+        float V_cmd_A = v_cmdStepsPerSec * sign(A_errorSteps);
+        if (std::abs(A_errorSteps) > 0)
+        {
+            Stepper_A.setSpeed(V_cmd_A);
+            Stepper_A.runSpeed();
+        }
+
+        float B_errorSteps = (float)B_cmdSteps - Stepper_B.currentPosition();
+        float V_cmd_B = v_cmdStepsPerSec * sign(B_errorSteps);
+        if (std::abs(B_errorSteps) > 0)
+        {
+            Stepper_B.setSpeed(V_cmd_B);
+            Stepper_B.runSpeed();
+        }
+
+
+        float C_errorSteps = (float)C_cmdSteps - Stpper_C.currentPosition();
+        float V_cmd_C = v_cmdStepsPerSec * sign(C_errorSteps);
+        if (std::abs(A_errorSteps) > 0)
+        {
+            Stpper_C.setSpeed(V_cmd_C);
+            Stpper_C.runSpeed();
+        }
+    }
+    else if (controlMode == PMC::RELATIVE)
+    {
+        Stepper_A.moveTo(Stepper_A.currentPosition() + A_cmdSteps);
+        Stepper_B.moveTo(Stepper_B.currentPosition() + B_cmdSteps);
+        Stpper_C.moveTo(Stpper_C.currentPosition() + C_cmdSteps);
     }
     else
     {
-        A.setSpeed(v);
-    }
-    if (B.currentPosition() > Bsteps)
-    {
-        B.setSpeed(-v);
-    }
-    else
-    {
-        B.setSpeed(v);
-    }
-    if (C.currentPosition() > Csteps)
-    {
-        C.setSpeed(-v);
-    }
-    else
-    {
-        C.setSpeed(v);
     }
 
-    while ((A.currentPosition() != Asteps) || (B.currentPosition() != Bsteps) || (C.currentPosition() != Csteps))
-    {
-
-        if (A.currentPosition() != Asteps)
-        {
-            A.runSpeed();
-        }
-        if (B.currentPosition() != Bsteps)
-        {
-            B.runSpeed();
-        }
-        if (C.currentPosition() != Csteps)
-        {
-            C.runSpeed();
-        }
-    }
     digitalWrite(STEP_ENABLE_PIN, HIGH);
     save_current_positions();
-}
-
-// Move each axis with velocity V X,Y units from the current position In the above commands,
-// V, X and Y are vectors of length 3. Velocity is in units of radians per second, X,Y are milliradians.
-// Velocity input as rad/ sec, converted to steps / sec
-void PrimaryMirrorControl::moveRelative(double v, double tip, double tilt)
-{
-    // Convert v (rad / second) to steps / second
-    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
-    moveRawRelative(v, tip, tilt);               // linear velocity / (1 step / 3 um) = steps / sec
-}
-
-// Move each axis with velocity V X,Y units from the current position to achieve desired tip/tilt(radians) relative position
-// Velocity input as steps / sec
-void PrimaryMirrorControl::moveRawRelative(double v, double tip, double tilt)
-{
-    digitalWrite(STEP_ENABLE_PIN, LOW);
-    // LFAST::CommsMessage newMsg;
-    // newMsg.addKeyValuePair<std::string>("Adjusting Tip/tilt Relative", "$OK^");
-    // commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-
-    // Convert x/y inputs to absulute stepper positions relative to zero position (Produces results in mm)
-    double Adistance = (281.3 * sin(tip)) / cos(tip);
-    double Bdistance = (0.004 * (60900.0 * sin(tilt) - 35160.0 * cos(tilt) * sin(tip))) / (cos(tip) * cos(tilt));
-    double Cdistance = (-0.004 * (60900.0 * sin(tilt) + 35160.0 * cos(tilt) * sin(tip))) / (cos(tip) * cos(tilt));
-
-    // Convert Distance to steps (MM_PER_STEP mm per step??)
-    int Asteps = Adistance / (MM_PER_STEP);
-    int Bsteps = Bdistance / (MM_PER_STEP);
-    int Csteps = Cdistance / (MM_PER_STEP);
-
-    char debugMsg[100]{0};
-    sprintf(debugMsg, "A Steps: %d\tB Steps: %d\tC Steps: %d", Asteps, Bsteps, Csteps);
-    cli->printDebugMessage(debugMsg);
-
-    A.moveTo(A.currentPosition() + Asteps);
-    if (Asteps < 0)
-    {
-        A.setSpeed(-v);
-    }
-    else
-    {
-        A.setSpeed(v);
-    }
-    B.moveTo(B.currentPosition() + Bsteps);
-    if (Bsteps < 0)
-    {
-        B.setSpeed(-v);
-    }
-    else
-    {
-        B.setSpeed(v);
-    }
-    C.moveTo(C.currentPosition() + Csteps);
-    if (Csteps < 0)
-    {
-        C.setSpeed(-v);
-    }
-    else
-    {
-        C.setSpeed(v);
-    }
-
-    std::memset(debugMsg, 0, sizeof(debugMsg));
-    sprintf(debugMsg, "To Go: A: %ld\tB: %ld\tC: %ld", A.distanceToGo(), B.distanceToGo(), C.distanceToGo());
-    cli->printDebugMessage(debugMsg);
-
-    while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0))
-    {
-        if (A.distanceToGo() != 0)
-        {
-            A.runSpeed();
-        }
-        if (B.distanceToGo() != 0)
-        {
-            B.runSpeed();
-        }
-        if (C.distanceToGo() != 0)
-        {
-            C.runSpeed();
-        }
-    }
-    digitalWrite(STEP_ENABLE_PIN, HIGH);
-    save_current_positions();
-}
-
-// Adjust focus position z(um) at velicity v(rad/sec)
-void PrimaryMirrorControl::focusRelative(double v, double z)
-{
-    // Convert v (rad / second) to steps / second
-    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
-    focusRelativeRaw(velVal, focusVal);
-}
-
-// Adjust focus position z(um) from current position at velicity v(steps/sec)
-void PrimaryMirrorControl::focusRelativeRaw(double v, double z)
-{
-    digitalWrite(STEP_ENABLE_PIN, LOW);
-    // LFAST::CommsMessage newMsg;
-    // newMsg.addKeyValuePair<std::string>("Adjusting focus Relative.", "$OK^");
-    // commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-
-    // Convert Distance to steps 3um per step??
-    // z is in microns??
-    int steps = z / 3;
-
-    if (z < 0)
-    {
-        v = -v;
-    }
-    A.moveTo(A.currentPosition() + steps);
-    A.setSpeed(v);
-    B.moveTo(B.currentPosition() + steps);
-    B.setSpeed(v);
-    C.moveTo(C.currentPosition() + steps);
-    C.setSpeed(v);
-
-    while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0))
-    {
-
-        if (A.distanceToGo() != 0)
-        {
-            A.runSpeed();
-        }
-        if (B.distanceToGo() != 0)
-        {
-            B.runSpeed();
-        }
-        if (C.distanceToGo() != 0)
-        {
-            C.runSpeed();
-        }
-    }
-    digitalWrite(STEP_ENABLE_PIN, HIGH);
-    save_current_positions();
-}
-
-// v input in (rad/sec), z input as um
-void PrimaryMirrorControl::focusAbsolute(double v, double z)
-{
-    // Convert v (rad / second) to steps / second
-    v = (v * MIRROR_RADIUS) / (MICRON_PER_STEP); // angular_vel * mirror radius = linear vel
-    focusRawAbsolute(v, z);
 }
 
 // v input in (steps/sec), z input as um
@@ -524,9 +248,9 @@ void PrimaryMirrorControl::focusRawAbsolute(double v, double z)
 
     // get z position of actuators in steps (x, y positions are fixed)
     int zA, zB, zC, zf;
-    zA = A.currentPosition();
-    zB = B.currentPosition();
-    zC = C.currentPosition();
+    zA = Stepper_A.currentPosition();
+    zB = Stepper_B.currentPosition();
+    zC = Stpper_C.currentPosition();
 
     // convert position in steps to mm?
     // MM_PER_STEP microns / step
@@ -556,39 +280,117 @@ void PrimaryMirrorControl::focusRawAbsolute(double v, double z)
     // cli->printDebugMessage(move);
 
     // Equally adust desired actuator movement given desired focus position
-    A.moveTo(A.currentPosition() + move);
-    A.setSpeed(v);
-    B.moveTo(B.currentPosition() + move);
-    B.setSpeed(v);
-    C.moveTo(C.currentPosition() + move);
-    C.setSpeed(v);
+    Stepper_A.setSpeed(v);
+    Stepper_A.moveTo(Stepper_A.currentPosition() + move);
+    Stepper_B.setSpeed(v);
+    Stepper_B.moveTo(Stepper_B.currentPosition() + move);
+    Stpper_C.setSpeed(v);
+    Stpper_C.moveTo(Stpper_C.currentPosition() + move);
 
-    while ((A.distanceToGo() != 0) || (B.distanceToGo() != 0) || (C.distanceToGo() != 0))
+    while ((Stepper_A.distanceToGo() != 0) || (Stepper_B.distanceToGo() != 0) || (Stpper_C.distanceToGo() != 0))
     {
 
-        if (A.distanceToGo() != 0)
+        if (Stepper_A.distanceToGo() != 0)
         {
-            A.runSpeed();
+            Stepper_A.runSpeed();
         }
-        if (B.distanceToGo() != 0)
+        if (Stepper_B.distanceToGo() != 0)
         {
-            B.runSpeed();
+            Stepper_B.runSpeed();
         }
-        if (C.distanceToGo() != 0)
+        if (Stpper_C.distanceToGo() != 0)
         {
-            C.runSpeed();
+            Stpper_C.runSpeed();
         }
     }
     digitalWrite(STEP_ENABLE_PIN, HIGH);
     save_current_positions();
 }
 
+// Move all actuators to home positions at velocity V (steps/sec)
+void PrimaryMirrorControl::goHome(volatile double v)
+{
+    digitalWrite(STEP_ENABLE_PIN, LOW);
+    Stepper_A.setSpeed(-v);
+    Stepper_B.setSpeed(-v);
+    Stpper_C.setSpeed(-v);
+    // Retract motors until they reach limit switches
+    while ((digitalRead(A_LIM)) || (digitalRead(B_LIM)) || (digitalRead(C_LIM)))
+    {
+
+        if ((digitalRead(A_LIM)))
+        {
+            Stepper_A.runSpeed();
+        }
+        if ((digitalRead(B_LIM)))
+        {
+            Stepper_B.runSpeed();
+        }
+        if ((digitalRead(C_LIM)))
+        {
+            Stpper_C.runSpeed();
+        }
+    }
+
+    // Time to allow limit switch to settle
+    delay(1);
+    Stepper_A.setSpeed(v);
+    Stepper_B.setSpeed(v);
+    Stpper_C.setSpeed(v);
+    // Deploy motors until limit switches deactivate
+    while (!(digitalRead(A_LIM)) || !(digitalRead(B_LIM)) || !(digitalRead(C_LIM)))
+    {
+
+        if (!(digitalRead(A_LIM)))
+        {
+            Stepper_A.runSpeed();
+        }
+        if (!(digitalRead(B_LIM)))
+        {
+            Stepper_B.runSpeed();
+        }
+        if (!(digitalRead(C_LIM)))
+        {
+            Stpper_C.runSpeed();
+        }
+    }
+    digitalWrite(STEP_ENABLE_PIN, HIGH);
+    Stepper_A.setCurrentPosition(0);
+    Stepper_B.setCurrentPosition(0);
+    Stpper_C.setCurrentPosition(0);
+    save_current_positions();
+}
+
+bool PrimaryMirrorControl::getStatus(uint8_t motor)
+{
+    if (motor == LFAST::PMC::MOTOR_A)
+        return Stepper_A.isRunning(); // Checks to see if the motor is currently running to a target
+    else if (motor == LFAST::PMC::MOTOR_B)
+        return Stepper_B.isRunning(); // true if the speed is not zero or not at the target position
+    else if (motor == LFAST::PMC::MOTOR_C)
+        return Stpper_C.isRunning();
+    else
+        return false;
+}
+
+double PrimaryMirrorControl::getPosition(uint8_t motor)
+{
+    if (motor == LFAST::PMC::MOTOR_A)
+        return Stepper_A.currentPosition(); // Checks to see if the motor is currently running to a target
+    else if (motor == LFAST::PMC::MOTOR_B)
+        return Stepper_B.currentPosition(); // true if the speed is not zero or not at the target position
+    else if (motor == LFAST::PMC::MOTOR_C)
+        return Stpper_C.currentPosition();
+    else
+        return 0.0;
+}
+
 void PrimaryMirrorControl::save_current_positions()
 {
     unsigned int eeAddr = 1;
-    int Aposition = A.currentPosition();
-    int Bposition = B.currentPosition();
-    int Cposition = C.currentPosition();
+    int Aposition = Stepper_A.currentPosition();
+    int Bposition = Stepper_B.currentPosition();
+    int Cposition = Stpper_C.currentPosition();
 
     EEPROM.put(eeAddr, Aposition);
     eeAddr += sizeof(Aposition); // Move address to the next byte after float 'f'.
@@ -610,71 +412,7 @@ void PrimaryMirrorControl::load_current_positions()
     eeAddr += sizeof(Bposition); // Move address to the next byte after float 'f'.
     EEPROM.get(eeAddr, Cposition);
 
-    A.setCurrentPosition(Aposition);
-    B.setCurrentPosition(Bposition);
-    C.setCurrentPosition(Cposition);
-}
-
-//////////////////////////////////////////////////////////////////////////////////////////
-/*Code Below is in work*/
-//////////////////////////////////////////////////////////////////////////////////////////
-// Static or Dynamic?
-void PrimaryMirrorControl::jogMirror(double lst)
-{
-    while (digitalRead(SW))
-    {
-
-        static int indx = 0;
-        int xValue = 0;
-        int yValue = 0;
-        int mapX = 0;
-        int mapY = 0;
-
-        for (int i = 0; i < 8; i++)
-        {
-            xValue = xValue + analogRead(VRx);
-            yValue = yValue + analogRead(VRy);
-        }
-        xValue = (xValue / 8) - 127;
-        yValue = (yValue / 8) - 149;
-        mapX = map(xValue, 0, 1023, -512, 512);
-        mapY = -map(yValue, 0, 1023, -512, 512);
-        mapX = mapX / (PI * 4);
-        mapY = mapY / (PI * 4);
-
-        double Aspeed = (281.3 * sin(mapX)) / cos(mapX);
-        double Bspeed = (0.004 * (60900.0 * sin(mapY) - 35160.0 * cos(mapY) * sin(mapX))) / (cos(mapX) * cos(mapY));
-        double Cspeed = (-0.004 * (60900.0 * sin(mapY) + 35160.0 * cos(mapY) * sin(mapX))) / (cos(mapX) * cos(mapY));
-
-        if (!(indx % 1000))
-        {
-            // Serial.print("X: ");
-            // cli->printDebugMessage(xValue, DEC);
-            // Serial.print("Y: ");
-            // cli->printDebugMessage(yValue, DEC);
-            // Serial.print("mapX: ");
-            // cli->printDebugMessage(mapX, DEC);
-            // Serial.print("mapY: ");
-            // cli->printDebugMessage(mapY, DEC);
-            // Serial.print("A: ");
-            // cli->printDebugMessage(Aspeed, DEC);
-            // Serial.print("B: ");
-            // cli->printDebugMessage(Bspeed, DEC);
-            // Serial.print("C: ");
-            // cli->printDebugMessage(Cspeed, DEC);
-        }
-
-        indx++;
-
-        if ((mapX > 200) || (mapX < -200) || (mapY > 200) || (mapY < -200))
-        {
-            A.setSpeed(Aspeed);
-            A.run();
-            B.setSpeed(Bspeed);
-            B.run();
-            C.setSpeed(Cspeed);
-            C.run();
-        }
-        // delay(10);
-    }
+    Stepper_A.setCurrentPosition(Aposition);
+    Stepper_B.setCurrentPosition(Bposition);
+    Stpper_C.setCurrentPosition(Cposition);
 }
