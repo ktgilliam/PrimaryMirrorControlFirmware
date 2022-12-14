@@ -82,8 +82,11 @@ unsigned int mPort = PORT;
 void control_thread()
 {
   commsService->processClientData("PMCMessage");
+  pPmc->moveMirror();
   threads.yield();
 }
+
+
 
 void comm_thread()
 {
@@ -95,56 +98,16 @@ void comm_thread()
       if (commsService->checkForNewClientData())
       {
         // pmcIf->printDebugMessage("New data received.");
-        set_thread_ID(0, threads.addThread(control_thread));
+        commthreadID = threads.addThread(control_thread);
       }
       commsService->stopDisconnectedClients();
     }
   }
 }
 
-void set_thread_ID(int commID, int ctrlID)
-{
-  if (ctrlID == 0)
-  {
-    commthreadID = commID;
-    // Serial.print("Comm thread ID set to: ");
-    // pmcIf->printDebugMessage(commthreadID);
-  }
-  else if (commID == 0)
-  {
-    ctrlthreadID = ctrlID;
-    // Serial.print("Ctrl thread ID set to: ");
-    // pmcIf->printDebugMessage(ctrlthreadID);
-  }
-  else
-  {
-    // pmcIf->printDebugMessage("Invalid thread ID.");
-  }
-}
-
-int get_thread_ID(bool commID, bool ctrlID)
-{
-  if (ctrlID == 0)
-  {
-    return (commthreadID);
-  }
-  else if (commID == 0)
-  {
-    return (ctrlthreadID);
-  }
-  else
-  {
-    // pmcIf->printDebugMessage("Invalid thread ID requested.");
-    return (0);
-  }
-}
 
 void setup()
 {
-  // Joystick Jogging Enable: INW
-  // pinMode(SW, INPUT_PULLUP);
-
-  // Fan PWM Enable
   LFAST::PrimaryMirrorControl &pmc = LFAST::PrimaryMirrorControl::getMirrorController();
   pPmc = &pmc;
   commsService = new LFAST::TcpCommsService(myIP);
@@ -166,33 +129,24 @@ void setup()
 
   commsService->registerMessageHandler<unsigned int>("Handshake", handshake);
   commsService->registerMessageHandler<unsigned int>("MoveType", moveType);
-  commsService->registerMessageHandler<unsigned int>("VelUnits", velUnits);
   commsService->registerMessageHandler<double>("FindHome", home);
-
-  commsService->registerMessageHandler<double>("SetVelocity", changeVel);
   commsService->registerMessageHandler<double>("SetTip", changeTip);
   commsService->registerMessageHandler<double>("SetTilt", changeTilt);
   commsService->registerMessageHandler<double>("SetFocus", changeFocus);
   commsService->registerMessageHandler<double>("GetStatus", getStatus);
   commsService->registerMessageHandler<double>("GetPositions", getPositions);
-  // commsService->registerMessageHandler<double>("Jog", jogMirror);
   commsService->registerMessageHandler<double>("Stop", stop);
   commsService->registerMessageHandler<unsigned int>("SetFanSpeed", fanSpeed);
 
   delay(500);
-
-  pPmc->load_current_positions();
-
   threads.setDefaultStackSize(6000);
-  set_thread_ID(threads.addThread(comm_thread), 0);
+  commthreadID = threads.addThread(comm_thread);
 
-  LFAST::enableControlLoopInterrupt();
   cli->printDebugMessage("Initialization complete");
 }
 
 void loop()
 {
-
   if (!commsService->Status())
   {
     cli->printDebugMessage("Reconnecting to network.");
@@ -234,28 +188,6 @@ void moveType(unsigned int type)
   }
 }
 
-void velUnits(unsigned int units)
-{
-  unsigned int unit = 0;
-  LFAST::CommsMessage newMsg;
-
-  if (units == 0)
-  { // rad / sec
-    unit = LFAST::PMC::ENGINEERING;
-  }
-  else if (units == 1)
-  { // steps / sec
-    unit = LFAST::PMC::STEPS_PER_SEC;
-  }
-  else
-  {
-    newMsg.addKeyValuePair<unsigned int>("VelocitySetError", 0x0BAD);
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-    return;
-  }
-  pPmc->setVelUnits(unit);
-}
-
 void home(double v)
 {
   pPmc->goHome(v);
@@ -264,11 +196,7 @@ void home(double v)
   commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 }
 
-void changeVel(double targetVel)
-{
-  pPmc->setVelocity(targetVel);
-  // moveMirror(LFAST::VELOCITY, targetVel);
-}
+
 
 void changeTip(double targetTip)
 {
@@ -278,13 +206,13 @@ void changeTip(double targetTip)
 
 void changeTilt(double targetTilt)
 {
-  pPmc->setTipTarget(targetTilt);
+  pPmc->setTiltTarget(targetTilt);
   // moveMirror(LFAST::TILT, targetTilt);
 }
 
 void changeFocus(double targetFocus)
 {
-  pPmc->setTipTarget(targetFocus);
+  pPmc->setFocusTarget(targetFocus);
   // moveMirror(LFAST::FOCUS, targetFocus);
 }
 
