@@ -21,74 +21,161 @@ Definitions of Primary Mirror Control functions
 */
 
 /*
-MoveAbsolute(V, X,Y) – Move each axis with velocity V to an absolute X,Y position with respect to “home” 
-MoveRelative(V, X,Y) – Move each axis with velocity V X,Y units from the current position In the above commands, 
+MoveAbsolute(V, X,Y) – Move each axis with velocity V to an absolute X,Y position with respect to “home”
+MoveRelative(V, X,Y) – Move each axis with velocity V X,Y units from the current position In the above commands,
                        V, X and Y are vectors of length 3. Velocity is in units of radians per second, X,Y are milliradians.
-MoveRawAbsolute(V, X,Y) – Move each axis with velocity V to an absolute X,Y position with respect to “home” 
-MoveRawRelative(V, X,Y) – Move each axis with velocity V X,Y units from the current position In the above commands, 
+MoveRawAbsolute(V, X,Y) – Move each axis with velocity V to an absolute X,Y position with respect to “home”
+MoveRawRelative(V, X,Y) – Move each axis with velocity V X,Y units from the current position In the above commands,
                           V, X and Y are vectors of length 3. Velocity is in units of steps per second, X,Y are steps.
-Home(V) – Move all actuators to home positions at velocity V 
-FanSpeed(S) – Set the fan speed to a percentage S of full scale 
-GetStatus() – Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving 
-GetPositions() – Returns 3 step counts 
+Home(V) – Move all actuators to home positions at velocity V
+FanSpeed(S) – Set the fan speed to a percentage S of full scale
+GetStatus() – Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving
+GetPositions() – Returns 3 step counts
 Stop() – Immediately stops all motion
 */
 
 #ifndef PRIMARY_MIRROR_CONTROL_H
 #define PRIMARY_MIRROR_CONTROL_H
 
+#include <Arduino.h>
 #include <iostream>
+#include <LFAST_Device.h>
+#include <TerminalInterface.h>
+#include <cmath>
 
+#include <MultiStepper.h>
 // Setup functions
-void hardware_setup();
-void set_thread_ID(int commID, int ctrlID);
-int get_thread_ID(bool commID, bool ctrlID);
-//void connectTerminalInterface(TerminalInterface* _cli);
-void handshake(unsigned int val);
 
-void save_current_positions();
-void load_current_positions();
+#define ENABLE_STEPPER LOW
+#define DISABLE_STEPPER HIGH
+// void connectTerminalInterface(TerminalInterface* _cli);
 
 // PMC Command Processing functions
-void moveType(unsigned int type);
-void changeVel(double targetVel);
-void velUnits(unsigned int targetUnits);
-void changeTip(double targetTip);
-void changeTilt(double targetTilt);
-void changeFocus(double targetFocus);
-void moveMirror(uint8_t axis, double val);
+#define MIRROR_RADIUS_MICRONS 281880 // Radius of mirror actuator positions in um
+#define MICRON_PER_STEP 3    // conversion factor of stepper motor steps to vertical movement in um
+#define MM_PER_STEP 0.003
+
+
 
 // PM Control functions
-void moveAbsolute(double v, double tip, double tilt);
-void moveRelative(double v, double tip, double tilt);
-void moveRawAbsolute(double v, double tip, double tilt);
-void moveRawRelative(double v, double tip, double tilt);
-void focusRelative(double v, double z);
-void focusRelativeRaw(double v, double z);
-void focusAbsolute(double v, double z);
-void focusRawAbsolute(double v, double z);
-void home(double v);
-void getStatus(double lst);
-void getPositions(double lst);
-void stop(double lst);
-void jogMirror(double lst);
-void fanSpeed(unsigned int val);
+enum PRIMARY_MIRROR_ROWS
+{
+
+    BLANK_ROW_0,
+    CMD_MODE_ROW,
+    TIP_ROW,
+    TILT_ROW,
+    FOCUS_ROW
+};
+
+class MirrorStates
+{
+private:
+    const double c[3]{281.3, -140.6, 243.6}; // Coefficients calculated based on  motor positions
+
+public:
+    double TIP_POS_ENG;
+    double TILT_POS_ENG;
+    double FOCUS_POS_ENG;
+
+    template <typename T>
+    void getMotorPosnCommands(T *a_steps, T *b_steps, T *c_steps)
+    {
+        constexpr double STEP_PER_MM = 1.0 / MM_PER_STEP;
+        double tanAlpha = std::tan(TIP_POS_ENG);
+        double cosAlpha = std::cos(TIP_POS_ENG);
+        double tanBeta = std::tan(TILT_POS_ENG);
+        double gamma = this->FOCUS_POS_ENG;
+
+        double a_distance = gamma + (c[0] * tanAlpha);
+        double b_distance = gamma + (c[1] * tanAlpha + c[2] * tanBeta / cosAlpha);
+        double c_distance = gamma + (c[1] * tanAlpha - c[2] * tanBeta / cosAlpha);
+
+        *a_steps = (T)(a_distance * STEP_PER_MM);
+        *b_steps = (T)(b_distance * STEP_PER_MM);
+        *c_steps = (T)(c_distance * STEP_PER_MM);
+    }
+};
 
 namespace LFAST
 {
-    enum PMC
+    namespace PMC
     {
-        VELOCITY = 0,
-        TIP = 1,
-        TILT = 2,
-        FOCUS = 3,
-        TYPE = 4,
-        UNITS = 5,
-        ABSOLUTE = 6,
-        RELATIVE = 7,
-        RADSEC = 8, 
-        STEPSEC = 9,
+        enum ControlMode
+        {
+            STOP = 0,
+            RELATIVE = 1,
+            ABSOLUTE = 2
+        };
+
+        enum UNIT_TYPES
+        {
+            ENGINEERING = 0,
+            STEPS_PER_SEC = 1
+        };
+
+        enum AXIS
+        {
+            TIP = 0,
+            TILT = 1,
+            FOCUS = 2
+        };
+
+        enum DIRECTION
+        {
+            REVERSE = -1,
+            FORWARD = 1
+        };
+
+        enum MOTOR_ID
+        {
+            MOTOR_A = 0,
+            MOTOR_B = 1,
+            MOTOR_C = 2
+        };
+
+    }
+
+    // void updateControlLoop_ISR();
+
+    class PrimaryMirrorControl : public LFAST_Device
+    {
+    public:
+        static PrimaryMirrorControl &getMirrorController();
+
+        virtual ~PrimaryMirrorControl() {}
+        void setupPersistentFields() override;
+        void updatePersistentFields();
+        void moveMirror();
+        void setControlMode(uint8_t moveType);
+        void setFanSpeed(unsigned int PWR);
+        void setTipTarget(double tgt);
+        void setTiltTarget(double tgt);
+        void setFocusTarget(double tgt);
+        void goHome(volatile double homeSpeed);
+        void stopNow();
+        bool getStatus(uint8_t motor);
+        double getPosition(uint8_t motor);
+        
+        void saveCurrentPositionsToEeprom();
+        void resetPositionsInEeprom();
+        void loadCurrentPositionsFromEeprom();
+
+        
+    private:
+        PrimaryMirrorControl();
+        void hardware_setup();
+        void moveSteppers();
+
+        MultiStepper *stepperControl;
+        MirrorStates CommandStates_Eng;
+        uint8_t controlMode;
+
+        bool focusUpdated;
+        bool tipUpdated;
+        bool tiltUpdated;
     };
-}
+
+};
 
 #endif

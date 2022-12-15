@@ -19,17 +19,7 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 
 */
 
-#include <Arduino.h>
-#include <AccelStepper.h>
-#include <MultiStepper.h>
-#include <TeensyThreads.h>
-#include <TcpCommsService.h>
-#include <TerminalInterface.h>
-#include <cmath>
-#include <debug.h>
-#include <math.h>
-#include <heartbeat.h>
-#include <string>
+
 
 #ifndef PRIMARY_MIRROR_GLOBAL_H
 #define PRIMARY_MIRROR_GLOBAL_H
@@ -59,24 +49,12 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 
 //Determine Network values
 #define MAC { 0x00, 0x50, 0xB6, 0xEA, 0x8F, 0x44 }
-#define IPAdd   { 169,254,232,24 }
+// #define IPAdd   { 169,254,232,24 }
 //#define MAC     { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED }
-//#define IPAdd   {192, 168, 121, 177}
+#define IPAdd   {192, 168, 121, 177}
 #define GATEWAY 0,0,0,0
 #define SUBNET  0,0,0,0
 #define PORT    1883//4400
-
-#define MIRROR_RADIUS 281880  // Radius of mirror actuator positions in um 
-#define MICRON_PER_STEP 3   //conversion factor of stepper motor steps to vertical movement in um
-#define MM_PER_STEP 0.003 
-
-
-
-
-
-
-
-
 
 
 
