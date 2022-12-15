@@ -52,49 +52,27 @@ Stop() – Immediately stops all motion
 
 // PMC Command Processing functions
 #define MIRROR_RADIUS_MICRONS 281880 // Radius of mirror actuator positions in um
-#define MICRON_PER_STEP 3    // conversion factor of stepper motor steps to vertical movement in um
+#define MICRON_PER_STEP 3            // conversion factor of stepper motor steps to vertical movement in um
 #define MM_PER_STEP 0.003
 
-
+#define MIRROR_MATH_COEFFS   \
+    {                        \
+        281.3, -140.6, 243.6 \
+    }
 
 // PM Control functions
 enum PRIMARY_MIRROR_ROWS
 {
-
     BLANK_ROW_0,
     CMD_MODE_ROW,
     TIP_ROW,
     TILT_ROW,
-    FOCUS_ROW
-};
-
-class MirrorStates
-{
-private:
-    const double c[3]{281.3, -140.6, 243.6}; // Coefficients calculated based on  motor positions
-
-public:
-    double TIP_POS_ENG;
-    double TILT_POS_ENG;
-    double FOCUS_POS_ENG;
-
-    template <typename T>
-    void getMotorPosnCommands(T *a_steps, T *b_steps, T *c_steps)
-    {
-        constexpr double STEP_PER_MM = 1.0 / MM_PER_STEP;
-        double tanAlpha = std::tan(TIP_POS_ENG);
-        double cosAlpha = std::cos(TIP_POS_ENG);
-        double tanBeta = std::tan(TILT_POS_ENG);
-        double gamma = this->FOCUS_POS_ENG;
-
-        double a_distance = gamma + (c[0] * tanAlpha);
-        double b_distance = gamma + (c[1] * tanAlpha + c[2] * tanBeta / cosAlpha);
-        double c_distance = gamma + (c[1] * tanAlpha - c[2] * tanBeta / cosAlpha);
-
-        *a_steps = (T)(a_distance * STEP_PER_MM);
-        *b_steps = (T)(b_distance * STEP_PER_MM);
-        *c_steps = (T)(c_distance * STEP_PER_MM);
-    }
+    FOCUS_ROW,
+    BLANK_ROW_1,
+    MOVE_SM_STATE_ROW,
+    STEPPER_A_FB,
+    STEPPER_B_FB,
+    STEPPER_C_FB,
 };
 
 namespace LFAST
@@ -135,47 +113,105 @@ namespace LFAST
         };
 
     }
+};
 
-    // void updateControlLoop_ISR();
+class MirrorStates
+{
+private:
+    const double c[3] = MIRROR_MATH_COEFFS; // = ; // Coefficients calculated based on  motor positions
 
-    class PrimaryMirrorControl : public LFAST_Device
+public:
+    MirrorStates &operator=(MirrorStates const &other)
     {
-    public:
-        static PrimaryMirrorControl &getMirrorController();
+        noInterrupts();
+        TIP_POS_ENG = other.TIP_POS_ENG;
+        TILT_POS_ENG = other.TILT_POS_ENG;
+        FOCUS_POS_ENG = other.FOCUS_POS_ENG;
+        interrupts();
+        return *this;
+    }
 
-        virtual ~PrimaryMirrorControl() {}
-        void setupPersistentFields() override;
-        void updatePersistentFields();
-        void moveMirror();
-        void setControlMode(uint8_t moveType);
-        void setFanSpeed(unsigned int PWR);
-        void setTipTarget(double tgt);
-        void setTiltTarget(double tgt);
-        void setFocusTarget(double tgt);
-        void goHome(volatile double homeSpeed);
-        void stopNow();
-        bool getStatus(uint8_t motor);
-        double getPosition(uint8_t motor);
-        
-        void saveCurrentPositionsToEeprom();
-        void resetPositionsInEeprom();
-        void loadCurrentPositionsFromEeprom();
+    volatile double TIP_POS_ENG;
+    volatile double TILT_POS_ENG;
+    volatile double FOCUS_POS_ENG;
 
-        
-    private:
-        PrimaryMirrorControl();
-        void hardware_setup();
-        void moveSteppers();
+    template <typename T>
+    void getMotorPosnCommands(T *a_steps, T *b_steps, T *c_steps) const
+    {
+        double tanAlpha = std::tan(TIP_POS_ENG);
+        double cosAlpha = std::cos(TIP_POS_ENG);
+        double tanBeta = std::tan(TILT_POS_ENG);
+        double gamma = this->FOCUS_POS_ENG;
 
-        MultiStepper *stepperControl;
-        MirrorStates CommandStates_Eng;
-        uint8_t controlMode;
+        double a_distance = gamma + (c[0] * tanAlpha);
+        double b_distance = gamma + (c[1] * tanAlpha + c[2] * tanBeta / cosAlpha);
+        double c_distance = gamma + (c[1] * tanAlpha - c[2] * tanBeta / cosAlpha);
 
-        bool focusUpdated;
-        bool tipUpdated;
-        bool tiltUpdated;
-    };
+        constexpr double STEP_PER_MM = 1.0 / MM_PER_STEP;
+        *a_steps = (T)(a_distance * STEP_PER_MM);
+        *b_steps = (T)(b_distance * STEP_PER_MM);
+        *c_steps = (T)(c_distance * STEP_PER_MM);
+    }
+};
 
+// void updateControlLoop_ISR();
+
+class PrimaryMirrorControl : public LFAST_Device
+{
+public:
+    static PrimaryMirrorControl &getMirrorController();
+
+    virtual ~PrimaryMirrorControl() {}
+    void setupPersistentFields() override;
+    void updateStatusFields();
+    void updateCommandFields();
+    void updateFeedbackFields();
+    void pingMirrorControlStateMachine();
+    void copyShadowToActive();
+    void setControlMode(uint8_t moveType);
+    void setFanSpeed(unsigned int PWR);
+    void setTipTarget(double tgt);
+    void setTiltTarget(double tgt);
+    void setFocusTarget(double tgt);
+    void goHome(volatile double homeSpeed);
+    void stopNow();
+    bool getStatus(uint8_t motor);
+    double getPosition(uint8_t motor);
+
+    void saveCurrentPositionsToEeprom();
+    void resetPositionsInEeprom();
+    void loadCurrentPositionsFromEeprom();
+    void enableControlInterrupt();
+    void setMoveNotifierFlag(volatile bool *flagPtr);
+private:
+
+
+    PrimaryMirrorControl();
+    void hardware_setup();
+    void updateStepperCommands();
+    bool pingSteppers();
+    MultiStepper *stepperControl;
+    MirrorStates CommandStates_Eng;
+    MirrorStates ShadowCommandStates_Eng;
+    uint8_t controlMode;
+
+    bool focusUpdated;
+    bool tipUpdated;
+    bool tiltUpdated;
+    int32_t A_cmdSteps;
+    int32_t B_cmdSteps;
+    int32_t C_cmdSteps;
+
+    typedef enum 
+    {
+        IDLE = 0,
+        NEW_MOVE_CMD = 1,
+        MOVE_IN_PROGRESS = 2,
+        MOVE_COMPLETE = 3
+    } MOVE_STATE;
+    MOVE_STATE currentMoveState;
+
+    volatile bool *moveNotifierFlagPtr;
 };
 
 #endif
