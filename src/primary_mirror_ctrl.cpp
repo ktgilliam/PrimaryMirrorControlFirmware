@@ -49,9 +49,11 @@ using namespace LFAST;
 
 void primaryMirrorControl_ISR()
 {
+    noInterrupts();
     PrimaryMirrorControl &pmc = PrimaryMirrorControl::getMirrorController();
     pmc.copyShadowToActive();
     pmc.pingMirrorControlStateMachine();
+    interrupts();
 }
 
 PrimaryMirrorControl::PrimaryMirrorControl()
@@ -69,23 +71,22 @@ PrimaryMirrorControl &PrimaryMirrorControl::getMirrorController()
 
 void PrimaryMirrorControl::hardware_setup()
 {
-
     // Initialize motors + limit switches
     Stepper_A.setMaxSpeed(800.0);     // Steps per second
     Stepper_A.setAcceleration(100.0); // Steps per second per second
-    steppers.addStepper(Stepper_A);
     pinMode(A_LIM, INPUT_PULLUP);
 
     Stepper_B.setMaxSpeed(800.0);
     Stepper_B.setAcceleration(100.0);
-    steppers.addStepper(Stepper_B);
     pinMode(B_LIM, INPUT_PULLUP);
 
     Stepper_C.setMaxSpeed(800.0);
     Stepper_C.setAcceleration(100.0);
-    steppers.addStepper(Stepper_C);
     pinMode(C_LIM, INPUT_PULLUP);
 
+    steppers.addStepper(Stepper_A);
+    steppers.addStepper(Stepper_B);
+    steppers.addStepper(Stepper_C);
     // Global stepper enable pin, high to diable drivers
     pinMode(STEP_ENABLE_PIN, OUTPUT);
 
@@ -95,7 +96,6 @@ void PrimaryMirrorControl::hardware_setup()
     Timer1.attachInterrupt(primaryMirrorControl_ISR);
 
     // digitalWrite(STEP_ENABLE_PIN, DISABLE_STEPPER);
-    digitalWrite(STEP_ENABLE_PIN, ENABLE_STEPPER);
 }
 
 void PrimaryMirrorControl::setMoveNotifierFlag(volatile bool *flagPtr)
@@ -103,50 +103,69 @@ void PrimaryMirrorControl::setMoveNotifierFlag(volatile bool *flagPtr)
     moveNotifierFlagPtr = flagPtr;
 }
 
-
 void PrimaryMirrorControl::pingMirrorControlStateMachine()
 {
     // tip/tilt/focus adustment control parsing
     bool moveCompleteFlag = false;
+    static MOVE_STATE prevMoveState = IDLE;
 
     switch (currentMoveState)
     {
     case IDLE:
-        if (tipUpdated == true && tiltUpdated == true && focusUpdated == true)
+        if (tipUpdated == true || tiltUpdated == true || focusUpdated == true)
+        {
             currentMoveState = NEW_MOVE_CMD;
+            tipUpdated = false;
+            tiltUpdated = false;
+            focusUpdated = false;
+        }
         break;
     case NEW_MOVE_CMD:
-        cli->printfDebugMessage("moveMirror() [Tip/Tilt/Focus] = %6.4f, %6.4f, %6.4f", CommandStates_Eng.TIP_POS_ENG, CommandStates_Eng.TILT_POS_ENG, CommandStates_Eng.FOCUS_POS_ENG);
+
         updateStepperCommands();
-        tipUpdated = false;
-        tiltUpdated = false;
-        focusUpdated = false;
         currentMoveState = MOVE_IN_PROGRESS;
         // Intentional fall-through
     case MOVE_IN_PROGRESS:
-        if (tipUpdated == true && tiltUpdated == true && focusUpdated == true)
-        {
-            currentMoveState = NEW_MOVE_CMD;
-            break;
-        }
         moveCompleteFlag = pingSteppers();
-        updatePersistentFields();
         saveCurrentPositionsToEeprom();
         if (moveCompleteFlag)
+        {
             currentMoveState = MOVE_COMPLETE;
+        }
+        else if (tipUpdated == true && tiltUpdated == true && focusUpdated == true)
+        {
+            currentMoveState = NEW_MOVE_CMD;
+        }
+        static uint32_t counter = 0;
+        // static uint32_t outerCounter = 0;
+        if (counter++ >= 1000)
+        {
+            updateFeedbackFields();
+            counter = 0;
+            // cli->printfDebugMessage("Still here: %d", outerCounter++);
+        }
         break;
     case MOVE_COMPLETE:
+        updateFeedbackFields();
+        // cli->printfDebugMessage("MOVE_COMPLETE");
         if (moveNotifierFlagPtr != nullptr)
             *moveNotifierFlagPtr = true;
         currentMoveState = IDLE;
+        // Timer1.stop();
     }
+
+    if (prevMoveState != currentMoveState)
+    {
+        updateStatusFields();
+        prevMoveState = currentMoveState;
+    }
+    // cli->printfDebugMessage("Leaving ISR");
 }
 void PrimaryMirrorControl::enableControlInterrupt()
 {
     Timer1.start();
+    digitalWrite(STEP_ENABLE_PIN, ENABLE_STEPPER);
 }
-
-
 
 // Functions to update necessary control variables
 void PrimaryMirrorControl::copyShadowToActive()
@@ -156,6 +175,7 @@ void PrimaryMirrorControl::copyShadowToActive()
 
 void PrimaryMirrorControl::setControlMode(uint8_t mode)
 {
+#if 0
     switch (controlMode)
     {
     case PMC::STOP:
@@ -168,6 +188,7 @@ void PrimaryMirrorControl::setControlMode(uint8_t mode)
         cli->printDebugMessage("ABSOLUTE");
         break;
     }
+#endif
     controlMode = mode;
 }
 
@@ -235,6 +256,7 @@ void PrimaryMirrorControl::updateStepperCommands()
         long stepperCmdVector[3]{A_cmdSteps, B_cmdSteps, C_cmdSteps};
         steppers.moveTo(stepperCmdVector);
     }
+    updateCommandFields();
 }
 
 bool PrimaryMirrorControl::pingSteppers()
@@ -371,7 +393,6 @@ void PrimaryMirrorControl::loadCurrentPositionsFromEeprom()
     Stepper_C.setCurrentPosition(Cposition);
 }
 
-
 void PrimaryMirrorControl::setupPersistentFields()
 {
     // None to set up yet
@@ -383,14 +404,31 @@ void PrimaryMirrorControl::setupPersistentFields()
     cli->addPersistentField(this->DeviceName, "[TIP CMD]", TIP_ROW);
     cli->addPersistentField(this->DeviceName, "[TILT CMD]", TILT_ROW);
     cli->addPersistentField(this->DeviceName, "[FOCUS CMD]", FOCUS_ROW);
+    cli->addPersistentField(this->DeviceName, "[STATE]", MOVE_SM_STATE_ROW);
     cli->addPersistentField(this->DeviceName, "[STEPPER A]", STEPPER_A_FB);
     cli->addPersistentField(this->DeviceName, "[STEPPER B]", STEPPER_B_FB);
     cli->addPersistentField(this->DeviceName, "[STEPPER C]", STEPPER_C_FB);
+    updateStatusFields();
 }
 
-
-void PrimaryMirrorControl::updatePersistentFields()
+void PrimaryMirrorControl::updateStatusFields()
 {
+    switch (currentMoveState)
+    {
+    case IDLE:
+        cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "IDLE");
+        break;
+    case NEW_MOVE_CMD:
+        cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "NEW_MOVE_CMD");
+        break;
+    case MOVE_IN_PROGRESS:
+        cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "MOVE_IN_PROGRESS");
+        break;
+    case MOVE_COMPLETE:
+        cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "MOVE_COMPLETE");
+        break;
+    }
+
     switch (controlMode)
     {
     case PMC::STOP:
@@ -403,10 +441,18 @@ void PrimaryMirrorControl::updatePersistentFields()
         cli->updatePersistentField(DeviceName, CMD_MODE_ROW, "ABSOLUTE");
         break;
     }
+}
+
+void PrimaryMirrorControl::updateCommandFields()
+{
     cli->updatePersistentField(DeviceName, TIP_ROW, CommandStates_Eng.TIP_POS_ENG);
     cli->updatePersistentField(DeviceName, TILT_ROW, CommandStates_Eng.TILT_POS_ENG);
     cli->updatePersistentField(DeviceName, FOCUS_ROW, CommandStates_Eng.FOCUS_POS_ENG);
+}
+
+void PrimaryMirrorControl::updateFeedbackFields()
+{
     cli->updatePersistentField(DeviceName, STEPPER_A_FB, Stepper_A.currentPosition());
-    cli->updatePersistentField(DeviceName, STEPPER_B_FB, Stepper_A.currentPosition());
-    cli->updatePersistentField(DeviceName, STEPPER_A_FB, Stepper_A.currentPosition());
+    cli->updatePersistentField(DeviceName, STEPPER_B_FB, Stepper_B.currentPosition());
+    cli->updatePersistentField(DeviceName, STEPPER_C_FB, Stepper_C.currentPosition());
 }

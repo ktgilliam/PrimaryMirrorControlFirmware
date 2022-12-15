@@ -63,12 +63,13 @@ Stop() – Immediately stops all motion
 // PM Control functions
 enum PRIMARY_MIRROR_ROWS
 {
-
     BLANK_ROW_0,
     CMD_MODE_ROW,
     TIP_ROW,
     TILT_ROW,
     FOCUS_ROW,
+    BLANK_ROW_1,
+    MOVE_SM_STATE_ROW,
     STEPPER_A_FB,
     STEPPER_B_FB,
     STEPPER_C_FB,
@@ -162,7 +163,9 @@ public:
 
     virtual ~PrimaryMirrorControl() {}
     void setupPersistentFields() override;
-    void updatePersistentFields();
+    void updateStatusFields();
+    void updateCommandFields();
+    void updateFeedbackFields();
     void pingMirrorControlStateMachine();
     void copyShadowToActive();
     void setControlMode(uint8_t moveType);

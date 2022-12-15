@@ -35,6 +35,7 @@ Mirror Control interface.
 #include "device_config.h"
 #include "primary_mirror_ctrl.h"
 // Parsing of JSON style command done in network file, for now.
+#include "CrashReport.h"
 
 /*
 Features:
@@ -112,11 +113,17 @@ void setup()
   delay(500);
   // threads.setDefaultStackSize(6000);
   // commthreadID = threads.addThread(comm_thread);
-  pPmc->setMoveNotifierFlag(&moveCompleteFlag);
   pPmc->resetPositionsInEeprom();
+  pPmc->setMoveNotifierFlag(&moveCompleteFlag);
   pPmc->loadCurrentPositionsFromEeprom();
   cli->printDebugMessage("Initialization complete");
-  pPmc->enableControlInterrupt();
+  cli->printDebugMessage(DEBUG_CODE_ID_STR);
+
+  if (CrashReport)
+  {
+    CrashReport.printTo(TEST_SERIAL);
+    while (1){;}
+  }
 }
 
 void loop()
@@ -140,6 +147,8 @@ void loop()
     commsService->processClientData("PMCMessage");
   }
   commsService->stopDisconnectedClients();
+  delayMicroseconds(1000);
+
   if (moveCompleteFlag)
   {
     LFAST::CommsMessage newMsg;
@@ -159,7 +168,8 @@ void handshake(unsigned int val)
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<unsigned int>("Handshake", 0xBEEF);
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-    cli->printDebugMessage("Connected to client.");
+    cli->printDebugMessage("Connected to client, starting control ISR.");
+    pPmc->enableControlInterrupt();
   }
   return;
 }
@@ -169,7 +179,7 @@ void moveType(unsigned int type)
   // cli->printDebugMessage("INSIDE THE MOVE TYPE CALLBACK!!!!!!!!!!");
   // if ((type == LFAST::PMC::ABSOLUTE) || (type == LFAST::PMC::RELATIVE))
   // {
-    pPmc->setControlMode(type);
+  pPmc->setControlMode(type);
   // }
   // else
   // {
