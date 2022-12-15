@@ -29,8 +29,9 @@ Implementation of Primary Mirror Control Functions.
 #include <iostream>
 #include <TerminalInterface.h>
 #include <math_util.h>
-#include "primary_mirror_global.h"
+#include "device_config.h"
 #include "teensy41_device.h"
+#include "TimerOne.h"
 
 #include <MultiStepper.h>
 #include <AccelStepper.h>
@@ -46,6 +47,14 @@ MultiStepper steppers;
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 using namespace LFAST;
 
+void primaryMirrorControl_ISR()
+{
+    PrimaryMirrorControl &pmc = PrimaryMirrorControl::getMirrorController();
+    pmc.copyShadowToActive();
+    pmc.moveMirror();
+
+}
+
 PrimaryMirrorControl::PrimaryMirrorControl()
 {
     controlMode = LFAST::PMC::STOP;
@@ -60,7 +69,10 @@ PrimaryMirrorControl &PrimaryMirrorControl::getMirrorController()
 
 void PrimaryMirrorControl::hardware_setup()
 {
-
+    // Initialize Timer
+    Timer1.initialize(UPDATE_PRD_US);
+    // Timer1.stop();
+    Timer1.attachInterrupt(primaryMirrorControl_ISR);
     // Initialize motors + limit switches
     Stepper_A.setMaxSpeed(800.0);     // Steps per second
     Stepper_A.setAcceleration(100.0); // Steps per second per second
@@ -115,7 +127,11 @@ void PrimaryMirrorControl::updatePersistentFields()
     cli->updatePersistentField(DeviceName, FOCUS_ROW, CommandStates_Eng.FOCUS_POS_ENG);
 }
 // Functions to update necessary control variables
-
+void PrimaryMirrorControl::copyShadowToActive()
+{
+    cli->printDebugMessage("inside ISR");
+    CommandStates_Eng = ShadowCommandStates_Eng;
+}
 void PrimaryMirrorControl::moveMirror()
 {
     // static int cmdNo = 0;
@@ -136,21 +152,21 @@ void PrimaryMirrorControl::setControlMode(uint8_t mode)
 
 void PrimaryMirrorControl::setTipTarget(double tgt)
 {
-    CommandStates_Eng.TIP_POS_ENG = tgt;
+    ShadowCommandStates_Eng.TIP_POS_ENG = tgt;
     tipUpdated = true;
     // cli->printfDebugMessage("TargetTip = %6.4f", CommandStates_Eng.TIP_POS_ENG);
 }
 
 void PrimaryMirrorControl::setTiltTarget(double tgt)
 {
-    CommandStates_Eng.TILT_POS_ENG = tgt;
+    ShadowCommandStates_Eng.TILT_POS_ENG = tgt;
     tiltUpdated = true;
     // cli->printfDebugMessage("TargetTilt = %6.4f", CommandStates_Eng.TILT_POS_ENG);
 }
 
 void PrimaryMirrorControl::setFocusTarget(double tgt)
 {
-    CommandStates_Eng.FOCUS_POS_ENG = tgt;
+    ShadowCommandStates_Eng.FOCUS_POS_ENG = tgt;
     focusUpdated = true;
     // cli->printfDebugMessage("TargetFocus = %6.4f", CommandStates_Eng.FOCUS_POS_ENG);
 }

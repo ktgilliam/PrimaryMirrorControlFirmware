@@ -55,7 +55,7 @@ Stop() – Immediately stops all motion
 #define MICRON_PER_STEP 3    // conversion factor of stepper motor steps to vertical movement in um
 #define MM_PER_STEP 0.003
 
-
+#define MIRROR_MATH_COEFFS {281.3, -140.6, 243.6}
 
 // PM Control functions
 enum PRIMARY_MIRROR_ROWS
@@ -71,17 +71,27 @@ enum PRIMARY_MIRROR_ROWS
 class MirrorStates
 {
 private:
-    const double c[3]{281.3, -140.6, 243.6}; // Coefficients calculated based on  motor positions
+    const double c[3] = MIRROR_MATH_COEFFS;// = ; // Coefficients calculated based on  motor positions
 
 public:
-    double TIP_POS_ENG;
-    double TILT_POS_ENG;
-    double FOCUS_POS_ENG;
+
+    MirrorStates& operator=(MirrorStates const& other)
+    {
+        noInterrupts();
+        TIP_POS_ENG = other.TIP_POS_ENG;
+        TILT_POS_ENG = other.TILT_POS_ENG;
+        FOCUS_POS_ENG = other.FOCUS_POS_ENG;
+        interrupts();
+        return *this;
+    }
+
+    volatile double TIP_POS_ENG;
+    volatile double TILT_POS_ENG;
+    volatile double FOCUS_POS_ENG;
 
     template <typename T>
-    void getMotorPosnCommands(T *a_steps, T *b_steps, T *c_steps)
+    void getMotorPosnCommands(T *a_steps, T *b_steps, T *c_steps) const
     {
-        constexpr double STEP_PER_MM = 1.0 / MM_PER_STEP;
         double tanAlpha = std::tan(TIP_POS_ENG);
         double cosAlpha = std::cos(TIP_POS_ENG);
         double tanBeta = std::tan(TILT_POS_ENG);
@@ -91,6 +101,7 @@ public:
         double b_distance = gamma + (c[1] * tanAlpha + c[2] * tanBeta / cosAlpha);
         double c_distance = gamma + (c[1] * tanAlpha - c[2] * tanBeta / cosAlpha);
 
+        constexpr double STEP_PER_MM = 1.0 / MM_PER_STEP;
         *a_steps = (T)(a_distance * STEP_PER_MM);
         *b_steps = (T)(b_distance * STEP_PER_MM);
         *c_steps = (T)(c_distance * STEP_PER_MM);
@@ -147,6 +158,7 @@ namespace LFAST
         void setupPersistentFields() override;
         void updatePersistentFields();
         void moveMirror();
+        void copyShadowToActive();
         void setControlMode(uint8_t moveType);
         void setFanSpeed(unsigned int PWR);
         void setTipTarget(double tgt);
@@ -169,6 +181,7 @@ namespace LFAST
 
         MultiStepper *stepperControl;
         MirrorStates CommandStates_Eng;
+        MirrorStates ShadowCommandStates_Eng;
         uint8_t controlMode;
 
         bool focusUpdated;

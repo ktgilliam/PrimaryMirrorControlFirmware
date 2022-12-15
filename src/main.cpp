@@ -21,20 +21,19 @@ This file contains the firmware code for the LFAST Prototype Primary
 Mirror Control interface.
 */
 
-#include "primary_mirror_global.h"
 
 #include <Arduino.h>
 #include <TeensyThreads.h>
 
 #include <cmath>
 #include <math.h>
-#include <heartbeat.h>
 #include <string>
 
 #include <TcpCommsService.h>
 #include <TerminalInterface.h>
 #include <teensy41_device.h>
 
+#include "device_config.h"
 #include "primary_mirror_ctrl.h"
 // Parsing of JSON style command done in network file, for now.
 
@@ -82,7 +81,7 @@ unsigned int mPort = PORT;
 void control_thread()
 {
   commsService->processClientData("PMCMessage");
-  pPmc->moveMirror();
+  // pPmc->moveMirror();
   cli->printDebugMessage("Leaving control thread.");
   threads.yield();
 }
