@@ -62,6 +62,7 @@ enum PRIMARY_MIRROR_ROWS
 {
 
     BLANK_ROW_0,
+    CMD_MODE_ROW,
     TIP_ROW,
     TILT_ROW,
     FOCUS_ROW

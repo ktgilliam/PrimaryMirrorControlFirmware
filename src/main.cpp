@@ -83,28 +83,25 @@ void control_thread()
 {
   commsService->processClientData("PMCMessage");
   pPmc->moveMirror();
+  cli->printDebugMessage("Leaving control thread.");
   threads.yield();
 }
 
-
-
 void comm_thread()
 {
-
   while (1)
   {
     if (commsService->checkForNewClients())
     {
-      if (commsService->checkForNewClientData())
-      {
-        // pmcIf->printDebugMessage("New data received.");
-        commthreadID = threads.addThread(control_thread);
-      }
       commsService->stopDisconnectedClients();
+    }
+    if (commsService->checkForNewClientData())
+    {
+      cli->printDebugMessage("New data received.");
+      commthreadID = threads.addThread(control_thread);
     }
   }
 }
-
 
 void setup()
 {
@@ -142,7 +139,7 @@ void setup()
   threads.setDefaultStackSize(6000);
   commthreadID = threads.addThread(comm_thread);
 
-  // pPmc->resetPositionsInEeprom();
+  pPmc->resetPositionsInEeprom();
   pPmc->loadCurrentPositionsFromEeprom();
   cli->printDebugMessage("Initialization complete");
 }
@@ -155,6 +152,7 @@ void loop()
     commsService->initializeEnetIface(PORT); // initialize
     while (true)
     {
+      cli->printDebugMessage("We are here.");
       ;
       ;
     }
@@ -170,7 +168,6 @@ void handshake(unsigned int val)
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<unsigned int>("Handshake", 0xBEEF);
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-
     cli->printDebugMessage("Connected to client.");
   }
   return;
@@ -197,8 +194,6 @@ void home(double v)
   newMsg.addKeyValuePair<std::string>("Finding Home", "$OK^");
   commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 }
-
-
 
 void changeTip(double targetTip)
 {
