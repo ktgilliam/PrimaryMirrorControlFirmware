@@ -56,6 +56,6 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #define SUBNET  0,0,0,0
 #define PORT    1883//4400
 
-#define UPDATE_PRD_US 1000
+#define UPDATE_PRD_US 100
 
 #endif

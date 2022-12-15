@@ -21,9 +21,8 @@ This file contains the firmware code for the LFAST Prototype Primary
 Mirror Control interface.
 */
 
-
 #include <Arduino.h>
-#include <TeensyThreads.h>
+// #include <TeensyThreads.h>
 
 #include <cmath>
 #include <math.h>
@@ -70,41 +69,16 @@ void stop(double lst);
 void fanSpeed(unsigned int val);
 
 LFAST::TcpCommsService *commsService;
-LFAST::PrimaryMirrorControl *pPmc;
+PrimaryMirrorControl *pPmc;
 TerminalInterface *cli;
-int commthreadID;
-int ctrlthreadID;
 
 byte myIP[] IPAdd;
 unsigned int mPort = PORT;
 
-void control_thread()
-{
-  commsService->processClientData("PMCMessage");
-  // pPmc->moveMirror();
-  cli->printDebugMessage("Leaving control thread.");
-  threads.yield();
-}
-
-void comm_thread()
-{
-  while (1)
-  {
-    if (commsService->checkForNewClients())
-    {
-      commsService->stopDisconnectedClients();
-    }
-    if (commsService->checkForNewClientData())
-    {
-      cli->printDebugMessage("New data received.");
-      commthreadID = threads.addThread(control_thread);
-    }
-  }
-}
 
 void setup()
 {
-  LFAST::PrimaryMirrorControl &pmc = LFAST::PrimaryMirrorControl::getMirrorController();
+  PrimaryMirrorControl &pmc = PrimaryMirrorControl::getMirrorController();
   pPmc = &pmc;
   commsService = new LFAST::TcpCommsService(myIP);
   cli = new TerminalInterface(PMC_LABEL, &(TEST_SERIAL), TEST_SERIAL_BAUD);
@@ -135,27 +109,36 @@ void setup()
   commsService->registerMessageHandler<unsigned int>("SetFanSpeed", fanSpeed);
 
   delay(500);
-  threads.setDefaultStackSize(6000);
-  commthreadID = threads.addThread(comm_thread);
+  // threads.setDefaultStackSize(6000);
+  // commthreadID = threads.addThread(comm_thread);
 
   pPmc->resetPositionsInEeprom();
   pPmc->loadCurrentPositionsFromEeprom();
   cli->printDebugMessage("Initialization complete");
+  pPmc->enableControlInterrupt();
 }
 
 void loop()
 {
-  if (!commsService->Status())
+
+  // if (!commsService->Status())
+  // {
+  //   cli->printDebugMessage("Reconnecting to network.");
+  //   commsService->initializeEnetIface(PORT); // initialize
+  //   while (true)
+  //   {
+  //     cli->printDebugMessage("We are here.");
+  //     ;
+  //     ;
+  //   }
+  // }
+  commsService->checkForNewClients();
+  if (commsService->checkForNewClientData())
   {
-    cli->printDebugMessage("Reconnecting to network.");
-    commsService->initializeEnetIface(PORT); // initialize
-    while (true)
-    {
-      cli->printDebugMessage("We are here.");
-      ;
-      ;
-    }
+    // cli->printDebugMessage("New data received.");
+    commsService->processClientData("PMCMessage");
   }
+  commsService->stopDisconnectedClients();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -196,25 +179,35 @@ void home(double v)
 
 void changeTip(double targetTip)
 {
+  noInterrupts();
   pPmc->setTipTarget(targetTip);
+  interrupts();
+
   // moveMirror(LFAST::TIP, targetTip);
 }
 
 void changeTilt(double targetTilt)
 {
+  noInterrupts();
   pPmc->setTiltTarget(targetTilt);
+  interrupts();
+
   // moveMirror(LFAST::TILT, targetTilt);
 }
 
 void changeFocus(double targetFocus)
 {
+
+  noInterrupts();
   pPmc->setFocusTarget(targetFocus);
-  // moveMirror(LFAST::FOCUS, targetFocus);
+  interrupts();
 }
 
 void fanSpeed(unsigned int PWR)
 {
+  noInterrupts();
   pPmc->setFanSpeed(PWR);
+  interrupts();
 }
 
 // Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving
@@ -230,12 +223,12 @@ void getStatus(double lst)
 void stop(double lst)
 {
   pPmc->stopNow();
-  int i = 1;
-  while ((ctrlthreadID - i) != commthreadID) // Kill all running control threads
-  {
-    threads.kill(ctrlthreadID - i);
-    i++;
-  }
+  // int i = 1;
+  // while ((ctrlthreadID - i) != commthreadID) // Kill all running control threads
+  // {
+  //   threads.kill(ctrlthreadID - i);
+  //   i++;
+  // }
   LFAST::CommsMessage newMsg;
   newMsg.addKeyValuePair<std::string>("Stopped", "$OK^");
   commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
