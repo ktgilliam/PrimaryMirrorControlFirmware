@@ -163,7 +163,7 @@ public:
     virtual ~PrimaryMirrorControl() {}
     void setupPersistentFields() override;
     void updatePersistentFields();
-    void moveMirror();
+    void pingMirrorControlStateMachine();
     void copyShadowToActive();
     void setControlMode(uint8_t moveType);
     void setFanSpeed(unsigned int PWR);
@@ -179,12 +179,14 @@ public:
     void resetPositionsInEeprom();
     void loadCurrentPositionsFromEeprom();
     void enableControlInterrupt();
-
+    void setMoveNotifierFlag(volatile bool *flagPtr);
 private:
+
+
     PrimaryMirrorControl();
     void hardware_setup();
     void updateStepperCommands();
-    void pingSteppers();
+    bool pingSteppers();
     MultiStepper *stepperControl;
     MirrorStates CommandStates_Eng;
     MirrorStates ShadowCommandStates_Eng;
@@ -196,7 +198,17 @@ private:
     int32_t A_cmdSteps;
     int32_t B_cmdSteps;
     int32_t C_cmdSteps;
-    bool moveInProgress;
+
+    typedef enum 
+    {
+        IDLE = 0,
+        NEW_MOVE_CMD = 1,
+        MOVE_IN_PROGRESS = 2,
+        MOVE_COMPLETE = 3
+    } MOVE_STATE;
+    MOVE_STATE currentMoveState;
+
+    volatile bool *moveNotifierFlagPtr;
 };
 
 #endif

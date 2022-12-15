@@ -75,6 +75,7 @@ TerminalInterface *cli;
 byte myIP[] IPAdd;
 unsigned int mPort = PORT;
 
+volatile bool moveCompleteFlag = false;
 
 void setup()
 {
@@ -111,7 +112,7 @@ void setup()
   delay(500);
   // threads.setDefaultStackSize(6000);
   // commthreadID = threads.addThread(comm_thread);
-
+  pPmc->setMoveNotifierFlag(&moveCompleteFlag);
   pPmc->resetPositionsInEeprom();
   pPmc->loadCurrentPositionsFromEeprom();
   cli->printDebugMessage("Initialization complete");
@@ -139,6 +140,14 @@ void loop()
     commsService->processClientData("PMCMessage");
   }
   commsService->stopDisconnectedClients();
+  if (moveCompleteFlag)
+  {
+    LFAST::CommsMessage newMsg;
+    newMsg.addKeyValuePair<unsigned int>("MoveComplete", 0xBEEF);
+    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    cli->printDebugMessage("Move Complete.");
+    moveCompleteFlag = false;
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -157,16 +166,17 @@ void handshake(unsigned int val)
 
 void moveType(unsigned int type)
 {
-  if ((type == LFAST::PMC::ABSOLUTE) || (type == LFAST::PMC::RELATIVE))
-  {
+  // cli->printDebugMessage("INSIDE THE MOVE TYPE CALLBACK!!!!!!!!!!");
+  // if ((type == LFAST::PMC::ABSOLUTE) || (type == LFAST::PMC::RELATIVE))
+  // {
     pPmc->setControlMode(type);
-  }
-  else
-  {
-    LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<unsigned int>("MoveError", 0x0BAD);
-    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-  }
+  // }
+  // else
+  // {
+  //   LFAST::CommsMessage newMsg;
+  //   newMsg.addKeyValuePair<unsigned int>("MoveError", 0x0BAD);
+  //   commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+  // }
 }
 
 void home(double v)
