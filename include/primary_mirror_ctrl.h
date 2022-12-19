@@ -176,9 +176,9 @@ public:
     void goHome(volatile double homeSpeed);
     void stopNow();
     bool getStatus(uint8_t motor);
-    double getPosition(uint8_t motor);
+    double getStepperPosition(uint8_t motor);
 
-    void saveCurrentPositionsToEeprom();
+    void saveStepperPositionsToEeprom();
     void resetPositionsInEeprom();
     void loadCurrentPositionsFromEeprom();
     void enableControlInterrupt();

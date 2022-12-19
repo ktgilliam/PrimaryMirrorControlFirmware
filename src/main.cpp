@@ -258,9 +258,9 @@ void stop(double lst)
 void getPositions(double lst)
 {
   LFAST::CommsMessage newMsg;
-  newMsg.addKeyValuePair<double>("APosition", pPmc->getPosition(LFAST::PMC::MOTOR_A));
-  newMsg.addKeyValuePair<double>("BPosition", pPmc->getPosition(LFAST::PMC::MOTOR_B));
-  newMsg.addKeyValuePair<double>("CPosition", pPmc->getPosition(LFAST::PMC::MOTOR_C));
+  newMsg.addKeyValuePair<double>("APosition", pPmc->getStepperPosition(LFAST::PMC::MOTOR_A));
+  newMsg.addKeyValuePair<double>("BPosition", pPmc->getStepperPosition(LFAST::PMC::MOTOR_B));
+  newMsg.addKeyValuePair<double>("CPosition", pPmc->getStepperPosition(LFAST::PMC::MOTOR_C));
   commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 }
 

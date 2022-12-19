@@ -124,7 +124,7 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
         // Intentional fall-through
     case MOVE_IN_PROGRESS:
         moveCompleteFlag = pingSteppers();
-        saveCurrentPositionsToEeprom();
+        saveStepperPositionsToEeprom();
         if (moveCompleteFlag)
         {
             currentMoveState = MOVE_COMPLETE;
@@ -256,7 +256,7 @@ void PrimaryMirrorControl::stopNow()
     Stepper_B.stop();
     Stepper_C.stop();
 
-    saveCurrentPositionsToEeprom();
+    saveStepperPositionsToEeprom();
 }
 
 // Move each axis with velocity V to an absolute X,Y position with respect to “home”
@@ -350,7 +350,7 @@ void PrimaryMirrorControl::goHome(volatile double homingSpeed)
     Stepper_A.setCurrentPosition(0);
     Stepper_B.setCurrentPosition(0);
     Stepper_C.setCurrentPosition(0);
-    saveCurrentPositionsToEeprom();
+    saveStepperPositionsToEeprom();
 }
 
 bool PrimaryMirrorControl::getStatus(uint8_t motor)
@@ -365,7 +365,7 @@ bool PrimaryMirrorControl::getStatus(uint8_t motor)
         return false;
 }
 
-double PrimaryMirrorControl::getPosition(uint8_t motor)
+double PrimaryMirrorControl::getStepperPosition(uint8_t motor)
 {
     if (motor == LFAST::PMC::MOTOR_A)
         return Stepper_A.currentPosition(); // Checks to see if the motor is currently running to a target
@@ -377,7 +377,7 @@ double PrimaryMirrorControl::getPosition(uint8_t motor)
         return 0.0;
 }
 
-void PrimaryMirrorControl::saveCurrentPositionsToEeprom()
+void PrimaryMirrorControl::saveStepperPositionsToEeprom()
 {
     unsigned int eeAddr = 1;
     int Aposition = Stepper_A.currentPosition();
