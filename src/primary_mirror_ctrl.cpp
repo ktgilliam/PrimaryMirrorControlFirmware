@@ -56,10 +56,35 @@ void primaryMirrorControl_ISR()
     interrupts();
 }
 
+void PrimaryMirrorControl::limitSwitch_A_ISR()
+{
+    noInterrupts();
+    detachInterrupt(digitalPinToInterrupt(A_LIMIT_SW_PIN));
+    PrimaryMirrorControl &pmc = PrimaryMirrorControl::getMirrorController();
+    pmc.limitSwitchHandler(LFAST::PMC::MOTOR_A);
+    interrupts();
+}
+void PrimaryMirrorControl::limitSwitch_B_ISR()
+{
+    noInterrupts();
+    detachInterrupt(digitalPinToInterrupt(B_LIMIT_SW_PIN));
+    PrimaryMirrorControl &pmc = PrimaryMirrorControl::getMirrorController();
+    pmc.limitSwitchHandler(LFAST::PMC::MOTOR_B);
+    interrupts();
+}
+void PrimaryMirrorControl::limitSwitch_C_ISR()
+{
+    noInterrupts();
+    detachInterrupt(digitalPinToInterrupt(C_LIMIT_SW_PIN));
+    PrimaryMirrorControl &pmc = PrimaryMirrorControl::getMirrorController();
+    pmc.limitSwitchHandler(LFAST::PMC::MOTOR_C);
+    interrupts();
+}
 PrimaryMirrorControl::PrimaryMirrorControl()
 {
     controlMode = LFAST::PMC::STOP;
     currentMoveState = IDLE;
+    currentHomingState = INITIALIZE;
     hardware_setup();
 }
 
@@ -74,28 +99,38 @@ void PrimaryMirrorControl::hardware_setup()
     // Initialize motors + limit switches
     Stepper_A.setMaxSpeed(800.0);     // Steps per second
     Stepper_A.setAcceleration(100.0); // Steps per second per second
-    pinMode(A_LIM, INPUT_PULLUP);
 
     Stepper_B.setMaxSpeed(800.0);
     Stepper_B.setAcceleration(100.0);
-    pinMode(B_LIM, INPUT_PULLUP);
 
     Stepper_C.setMaxSpeed(800.0);
     Stepper_C.setAcceleration(100.0);
-    pinMode(C_LIM, INPUT_PULLUP);
 
     steppers.addStepper(Stepper_A);
     steppers.addStepper(Stepper_B);
     steppers.addStepper(Stepper_C);
-    // Global stepper enable pin, high to diable drivers
+
     pinMode(STEP_ENABLE_PIN, OUTPUT);
 
+    pinMode(A_LIMIT_SW_PIN, INPUT_PULLUP);
+    pinMode(B_LIMIT_SW_PIN, INPUT_PULLUP);
+    pinMode(C_LIMIT_SW_PIN, INPUT_PULLUP);
+
+    // Global stepper enable pin, high to diable drivers
+    enableLimitSwitchInterrupts();
     // Initialize Timer
     Timer1.initialize(UPDATE_PRD_US);
     Timer1.stop();
     Timer1.attachInterrupt(primaryMirrorControl_ISR);
 
     // digitalWrite(STEP_ENABLE_PIN, DISABLE_STEPPER);
+}
+
+void PrimaryMirrorControl::enableLimitSwitchInterrupts()
+{
+    attachInterrupt(digitalPinToInterrupt(A_LIMIT_SW_PIN), limitSwitch_A_ISR, FALLING);
+    attachInterrupt(digitalPinToInterrupt(B_LIMIT_SW_PIN), limitSwitch_B_ISR, FALLING);
+    attachInterrupt(digitalPinToInterrupt(C_LIMIT_SW_PIN), limitSwitch_C_ISR, FALLING);
 }
 
 void PrimaryMirrorControl::setMoveNotifierFlag(volatile bool *flagPtr)
@@ -108,6 +143,7 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
     // tip/tilt/focus adustment control parsing
     bool moveCompleteFlag = false;
     static MOVE_STATE prevMoveState = IDLE;
+    static uint32_t counter = 0;
 
     switch (currentMoveState)
     {
@@ -118,7 +154,7 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
         }
         break;
     case NEW_MOVE_CMD:
-
+        enableLimitSwitchInterrupts();
         currentMoveState = MOVE_IN_PROGRESS;
         updateStepperCommands();
         // Intentional fall-through
@@ -137,14 +173,6 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
                 currentMoveState = NEW_MOVE_CMD;
             }
         }
-        static uint32_t counter = 0;
-        // static uint32_t outerCounter = 0;
-        if (counter++ >= 1000)
-        {
-            updateFeedbackFields();
-            counter = 0;
-            // cli->printfDebugMessage("Still here: %d", outerCounter++);
-        }
         break;
     case MOVE_COMPLETE:
         updateFeedbackFields();
@@ -153,8 +181,22 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
             *moveNotifierFlagPtr = true;
         currentMoveState = IDLE;
         // Timer1.stop();
-    }
+    case LIMIT_SW_DETECT:
+        stopNow();
+        currentMoveState = IDLE;
+        break;
+    case HOMING_IS_ACTIVE:
+        bool homingComplete = pingHomingRoutine();
 
+        if (homingComplete)
+            currentMoveState = IDLE;
+        break;
+    }
+    if (counter++ >= 1000)
+    {
+        updateFeedbackFields();
+        counter = 0;
+    }
     if (prevMoveState != currentMoveState)
     {
         updateStatusFields();
@@ -188,7 +230,10 @@ bool PrimaryMirrorControl::checkForNewCommand()
     }
     return result;
 }
-
+bool PrimaryMirrorControl::isHomingInProgress()
+{
+    return currentMoveState == HOMING_IS_ACTIVE;
+}
 void PrimaryMirrorControl::enableControlInterrupt()
 {
     Timer1.start();
@@ -251,7 +296,7 @@ void PrimaryMirrorControl::setFanSpeed(unsigned int PWR)
 // Immediately stops all motion
 void PrimaryMirrorControl::stopNow()
 {
-    digitalWrite(STEP_ENABLE_PIN, DISABLE_STEPPER);
+    // digitalWrite(STEP_ENABLE_PIN, DISABLE_STEPPER);
     Stepper_A.stop();
     Stepper_B.stop();
     Stepper_C.stop();
@@ -299,60 +344,134 @@ bool PrimaryMirrorControl::pingSteppers()
     }
     return moveCompleteFlag;
 }
+bool PrimaryMirrorControl::pingHomingRoutine()
+{
+    bool homingComplete = false;
+    switch (currentHomingState)
+    {
+    case INITIALIZE:
+        limitFound_A = false;
+        limitFound_B = false;
+        limitFound_C = false;
+        Stepper_A.setSpeed(-homingSpeedStepsPerSec);
+        Stepper_B.setSpeed(-homingSpeedStepsPerSec);
+        Stepper_C.setSpeed(-homingSpeedStepsPerSec);
+        digitalWrite(STEP_ENABLE_PIN, LOW);
+        currentHomingState = HOMING_STEP_1;
+        updateStatusFields();
+        break;
+    case HOMING_STEP_1:
+        if (!limitFound_A)
+            Stepper_A.runSpeed();
+        if (!limitFound_B)
+            Stepper_B.runSpeed();
+        if (!limitFound_C)
+            Stepper_C.runSpeed();
+        // delay(1);
+        if (limitFound_A && limitFound_B && limitFound_C)
+        {
+            Stepper_A.setSpeed(homingSpeedStepsPerSec * 0.3);
+            Stepper_B.setSpeed(homingSpeedStepsPerSec * 0.3);
+            Stepper_C.setSpeed(homingSpeedStepsPerSec * 0.3);
+            saveStepperPositionsToEeprom();
+            currentHomingState = HOMING_STEP_2;
+            updateStatusFields();
+        }
+        break;
+    case HOMING_STEP_2:
+        if (Stepper_A.currentPosition() < 100)
+        {
+            Stepper_A.runSpeed();
+            Stepper_B.runSpeed();
+            Stepper_C.runSpeed();
+        }
+        else
+        {
+            // if (digitalRead(A_LIMIT_SW_PIN) == LOW)
+            //     Stepper_A.runSpeed();
+            // if (digitalRead(B_LIMIT_SW_PIN) == LOW)
+            //     Stepper_B.runSpeed();
+            // if (digitalRead(C_LIMIT_SW_PIN) == LOW)
+            //     Stepper_C.runSpeed();
+            // delay(1);
+            if ((digitalRead(A_LIMIT_SW_PIN)) == HIGH &&
+                (digitalRead(B_LIMIT_SW_PIN)) == HIGH &&
+                (digitalRead(C_LIMIT_SW_PIN)) == HIGH)
+            {
+                limitFound_A = false;
+                limitFound_B = false;
+                limitFound_C = false;
+                Stepper_A.setSpeed(homingSpeedStepsPerSec * 0.1);
+                Stepper_B.setSpeed(homingSpeedStepsPerSec * 0.1);
+                Stepper_C.setSpeed(homingSpeedStepsPerSec * 0.1);
+                enableLimitSwitchInterrupts();
+                currentHomingState = HOMING_STEP_3;
+                updateStatusFields();
+            }
+        }
+
+        break;
+    case HOMING_STEP_3:
+        if (!limitFound_A)
+            Stepper_A.runSpeed();
+        if (!limitFound_B)
+            Stepper_B.runSpeed();
+        if (!limitFound_C)
+            Stepper_C.runSpeed();
+        // delay(1);
+        if (limitFound_A && limitFound_B && limitFound_C)
+        {
+            enableLimitSwitchInterrupts();
+            saveStepperPositionsToEeprom();
+            homingComplete = true;
+        }
+        break;
+    }
+
+    return homingComplete;
+}
 // Move all actuators to home positions at velocity V (steps/sec)
 void PrimaryMirrorControl::goHome(volatile double homingSpeed)
 {
-    digitalWrite(STEP_ENABLE_PIN, LOW);
-    Stepper_A.setSpeed(-homingSpeed);
-    Stepper_B.setSpeed(-homingSpeed);
-    Stepper_C.setSpeed(-homingSpeed);
-    // Retract motors until they reach limit switches
-    while ((digitalRead(A_LIM)) || (digitalRead(B_LIM)) || (digitalRead(C_LIM)))
-    {
-
-        if ((digitalRead(A_LIM)))
-        {
-            Stepper_A.runSpeed();
-        }
-        if ((digitalRead(B_LIM)))
-        {
-            Stepper_B.runSpeed();
-        }
-        if ((digitalRead(C_LIM)))
-        {
-            Stepper_C.runSpeed();
-        }
-    }
-
-    // Time to allow limit switch to settle
-    delay(1);
-    Stepper_A.setSpeed(homingSpeed * 0.2);
-    Stepper_B.setSpeed(homingSpeed * 0.2);
-    Stepper_C.setSpeed(homingSpeed * 0.2);
-    // Deploy motors until limit switches deactivate
-    while (!(digitalRead(A_LIM)) || !(digitalRead(B_LIM)) || !(digitalRead(C_LIM)))
-    {
-
-        if (!(digitalRead(A_LIM)))
-        {
-            Stepper_A.runSpeed();
-        }
-        if (!(digitalRead(B_LIM)))
-        {
-            Stepper_B.runSpeed();
-        }
-        if (!(digitalRead(C_LIM)))
-        {
-            Stepper_C.runSpeed();
-        }
-    }
-    digitalWrite(STEP_ENABLE_PIN, HIGH);
-    Stepper_A.setCurrentPosition(0);
-    Stepper_B.setCurrentPosition(0);
-    Stepper_C.setCurrentPosition(0);
-    saveStepperPositionsToEeprom();
+    homingSpeedStepsPerSec = (homingSpeed * MIRROR_RADIUS) / (MICRON_PER_STEP);
+    currentMoveState = HOMING_IS_ACTIVE;
+    currentHomingState = INITIALIZE;
+    controlMode = PMC::HOMING;
 }
+void PrimaryMirrorControl::limitSwitchHandler(uint16_t motor)
+{
+    // For de-bounce
+    delayMicroseconds(500);
+    if (motor == LFAST::PMC::MOTOR_A)
+    {
+        if (currentMoveState != HOMING_IS_ACTIVE)
+            attachInterrupt(digitalPinToInterrupt(A_LIMIT_SW_PIN), limitSwitch_A_ISR, FALLING);
+        cli->printDebugMessage("A Limit Switch Detected");
+        Stepper_A.setCurrentPosition(0);
+        limitFound_A = true;
+    }
+    else if (motor == LFAST::PMC::MOTOR_B)
+    {
+        if (currentMoveState != HOMING_IS_ACTIVE)
+            attachInterrupt(digitalPinToInterrupt(B_LIMIT_SW_PIN), limitSwitch_B_ISR, FALLING);
+        cli->printDebugMessage("B Limit Switch Detected");
+        Stepper_B.setCurrentPosition(0);
+        limitFound_B = true;
+    }
+    else if (motor == LFAST::PMC::MOTOR_C)
+    {
+        if (currentMoveState != HOMING_IS_ACTIVE)
+            attachInterrupt(digitalPinToInterrupt(C_LIMIT_SW_PIN), limitSwitch_C_ISR, FALLING);
+        cli->printDebugMessage("C Limit Switch Detected");
+        Stepper_C.setCurrentPosition(0);
+        limitFound_C = true;
+    }
 
+    if (currentMoveState != HOMING_IS_ACTIVE)
+    {
+        currentMoveState = LIMIT_SW_DETECT;
+    }
+}
 bool PrimaryMirrorControl::getStatus(uint8_t motor)
 {
     if (motor == LFAST::PMC::MOTOR_A)
@@ -379,41 +498,32 @@ double PrimaryMirrorControl::getStepperPosition(uint8_t motor)
 
 void PrimaryMirrorControl::saveStepperPositionsToEeprom()
 {
-    unsigned int eeAddr = 1;
     int Aposition = Stepper_A.currentPosition();
     int Bposition = Stepper_B.currentPosition();
     int Cposition = Stepper_C.currentPosition();
     // cli->printfDebugMessage("EEPROM Write [A/B/C]: %d, %d, %d", Aposition, Bposition, Cposition);
-    EEPROM.put(eeAddr, Aposition);
-    eeAddr += sizeof(Aposition); // Move address to the next byte after float 'f'.
-    EEPROM.put(eeAddr, Bposition);
-    eeAddr += sizeof(Bposition); // Move address to the next byte after float 'f'.
-    EEPROM.put(eeAddr, Cposition);
+    EEPROM.put(EEPROM_ADDR_STEPPER_A_POS, Aposition);
+    EEPROM.put(EEPROM_ADDR_STEPPER_B_POS, Bposition);
+    EEPROM.put(EEPROM_ADDR_STEPPER_C_POS, Cposition);
 }
 
 void PrimaryMirrorControl::resetPositionsInEeprom()
 {
-    unsigned int eeAddr = 1;
-    EEPROM.put(eeAddr, 0);
-    eeAddr += sizeof(int); // Move address to the next byte after float 'f'.
-    EEPROM.put(eeAddr, 0);
-    eeAddr += sizeof(int); // Move address to the next byte after float 'f'.
-    EEPROM.put(eeAddr, 0);
+    EEPROM.put(EEPROM_ADDR_STEPPER_A_POS, 0);
+    EEPROM.put(EEPROM_ADDR_STEPPER_B_POS, 0);
+    EEPROM.put(EEPROM_ADDR_STEPPER_C_POS, 0);
     cli->printDebugMessage("Resetting eeprom positions", LFAST::WARNING);
 }
 
 void PrimaryMirrorControl::loadCurrentPositionsFromEeprom()
 {
-    unsigned int eeAddr = 1;
     int Aposition = 0;
     int Bposition = 0;
     int Cposition = 0;
 
-    EEPROM.get(eeAddr, Aposition);
-    eeAddr += sizeof(Aposition); // Move address to the next byte after float 'f'.
-    EEPROM.get(eeAddr, Bposition);
-    eeAddr += sizeof(Bposition); // Move address to the next byte after float 'f'.
-    EEPROM.get(eeAddr, Cposition);
+    EEPROM.get(EEPROM_ADDR_STEPPER_A_POS, Aposition);
+    EEPROM.get(EEPROM_ADDR_STEPPER_B_POS, Bposition);
+    EEPROM.get(EEPROM_ADDR_STEPPER_C_POS, Cposition);
 
     cli->printfDebugMessage("EEPROM Load [A/B/C]: %d, %d, %d", Aposition, Bposition, Cposition);
     Stepper_A.setCurrentPosition(Aposition);
@@ -455,6 +565,27 @@ void PrimaryMirrorControl::updateStatusFields()
     case MOVE_COMPLETE:
         cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "MOVE_COMPLETE");
         break;
+    case LIMIT_SW_DETECT:
+        cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "LIMIT_SW_DETECT");
+        break;
+    case HOMING_IS_ACTIVE:
+        switch (currentHomingState)
+        {
+        case INITIALIZE:
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING (INIT)");
+            break;
+        case HOMING_STEP_1:
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING (STEP 1)");
+            break;
+        case HOMING_STEP_2:
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING (STEP 2)");
+            break;
+        case HOMING_STEP_3:
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING (STEP 3)");
+            break;
+        }
+
+        break;
     }
 
     switch (controlMode)
@@ -466,6 +597,9 @@ void PrimaryMirrorControl::updateStatusFields()
         cli->updatePersistentField(DeviceName, CMD_MODE_ROW, "RELATIVE");
         break;
     case PMC::ABSOLUTE:
+        cli->updatePersistentField(DeviceName, CMD_MODE_ROW, "ABSOLUTE");
+        break;
+    case PMC::HOMING:
         cli->updatePersistentField(DeviceName, CMD_MODE_ROW, "ABSOLUTE");
         break;
     }

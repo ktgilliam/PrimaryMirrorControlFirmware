@@ -30,15 +30,15 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 
 #define A_STEP 2
 #define A_DIR  5
-#define A_LIM  9
+#define A_LIMIT_SW_PIN  9
 
 #define B_STEP 3
 #define B_DIR  6
-#define B_LIM 10
+#define B_LIMIT_SW_PIN 10
 
 #define C_STEP 4
 #define C_DIR  7
-#define C_LIM 11
+#define C_LIMIT_SW_PIN 11
 
 #define STEP_ENABLE_PIN 8 
 #define FAN_CONTROL 0     // Unconfirmed
@@ -56,6 +56,16 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #define SUBNET  0,0,0,0
 #define PORT    1883//4400
 
-#define UPDATE_PRD_US 100
+#define UPDATE_PRD_US 1000
+
+#define MIRROR_RADIUS 281880  // Radius of mirror actuator positions in um 
+
+constexpr uint32_t EEPROM_ADDR_START = 0;
+constexpr uint32_t EEPROM_ADDR_STEPPER_A_POS = (EEPROM_ADDR_START + 0);
+constexpr uint32_t EEPROM_ADDR_STEPPER_B_POS = (EEPROM_ADDR_STEPPER_A_POS + sizeof(uint32_t));
+constexpr uint32_t EEPROM_ADDR_STEPPER_C_POS = (EEPROM_ADDR_STEPPER_B_POS + sizeof(uint32_t));
+constexpr uint32_t EEPROM_ADDR_IS_HOMED = (EEPROM_ADDR_STEPPER_C_POS + sizeof(uint32_t));
+constexpr uint32_t EEPROM_ADDR_RESET_NOTIFIER = (EEPROM_ADDR_IS_HOMED + sizeof(uint32_t));
+
 
 #endif

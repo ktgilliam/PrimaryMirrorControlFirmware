@@ -53,6 +53,7 @@
         "ios": "cpp",
         "locale": "cpp",
         "queue": "cpp",
-        "cstdbool": "cpp"
+        "cstdbool": "cpp",
+        "*.tpp": "cpp"
     }
 }

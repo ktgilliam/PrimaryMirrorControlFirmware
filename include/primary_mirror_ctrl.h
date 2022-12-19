@@ -83,7 +83,8 @@ namespace LFAST
         {
             STOP = 0,
             RELATIVE = 1,
-            ABSOLUTE = 2
+            ABSOLUTE = 2,
+            HOMING = 3
         };
 
         enum UNIT_TYPES
@@ -185,13 +186,17 @@ public:
     void setMoveNotifierFlag(volatile bool *flagPtr);
 
     bool checkForNewCommand();
+    bool isHomingInProgress();
+
+
+    void limitSwitchHandler(uint16_t axis);
 private:
-
-
     PrimaryMirrorControl();
     void hardware_setup();
+    void enableLimitSwitchInterrupts();
     void updateStepperCommands();
     bool pingSteppers();
+    bool pingHomingRoutine();
     MultiStepper *stepperControl;
     MirrorStates CommandStates_Eng;
     MirrorStates ShadowCommandStates_Eng;
@@ -203,15 +208,34 @@ private:
     int32_t A_cmdSteps;
     int32_t B_cmdSteps;
     int32_t C_cmdSteps;
+    bool limitFound_A;
+    bool limitFound_B;
+    bool limitFound_C;
+    double homingSpeedStepsPerSec;
 
-    typedef enum 
+    static void limitSwitch_A_ISR();
+    static void limitSwitch_B_ISR();
+    static void limitSwitch_C_ISR();
+
+    typedef enum
     {
         IDLE = 0,
         NEW_MOVE_CMD = 1,
         MOVE_IN_PROGRESS = 2,
-        MOVE_COMPLETE = 3
+        MOVE_COMPLETE = 3,
+        LIMIT_SW_DETECT = 4,
+        HOMING_IS_ACTIVE = 5,
     } MOVE_STATE;
     MOVE_STATE currentMoveState;
+
+    typedef enum
+    {
+        INITIALIZE,
+        HOMING_STEP_1,
+        HOMING_STEP_2,
+        HOMING_STEP_3,
+    } HOMING_STATE;
+    HOMING_STATE currentHomingState;
 
     volatile bool *moveNotifierFlagPtr;
 };
