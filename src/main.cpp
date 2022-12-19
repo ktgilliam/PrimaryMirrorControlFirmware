@@ -23,6 +23,7 @@ Mirror Control interface.
 
 #include <Arduino.h>
 // #include <TeensyThreads.h>
+#include "Watchdog_t4.h"
 
 #include <cmath>
 #include <math.h>
@@ -77,6 +78,30 @@ byte myIP[] IPAdd;
 unsigned int mPort = PORT;
 
 volatile bool moveCompleteFlag = false;
+WDT_T4<WDT1> wdt;
+bool wdt_ready = false;
+void watchdogWarning()
+{
+  if (cli != nullptr)
+  {
+    cli->printDebugMessage("Danger - feed the dog!", LFAST::WARNING);
+  }
+}
+void configureWatchdog()
+{
+  if (cli != nullptr)
+  {
+    cli->printDebugMessage("Starting watchdog");
+  }
+  WDT_timings_t config;
+  config.trigger = 5;  /* in seconds, 0->128 */
+  config.timeout = 10; /* in seconds, 0->128 */
+  config.callback = watchdogWarning;
+  config.pin = 13;
+  pinMode(13, OUTPUT);
+  wdt_ready = true;
+  wdt.begin(config);
+}
 
 void setup()
 {
@@ -117,12 +142,16 @@ void setup()
   pPmc->setMoveNotifierFlag(&moveCompleteFlag);
   pPmc->loadCurrentPositionsFromEeprom();
   cli->printDebugMessage("Initialization complete");
-  cli->printDebugMessage(DEBUG_CODE_ID_STR);
+  // cli->printDebugMessage(DEBUG_CODE_ID_STR);
 
   if (CrashReport)
   {
     CrashReport.printTo(TEST_SERIAL);
-    while (1){;}
+    // CrashReport.clear();
+    while (1)
+    {
+      ;
+    }
   }
 }
 
@@ -140,6 +169,8 @@ void loop()
   //     ;
   //   }
   // }
+  if (wdt_ready)
+    wdt.feed();
   commsService->checkForNewClients();
   if (commsService->checkForNewClientData())
   {
@@ -169,6 +200,8 @@ void handshake(unsigned int val)
     newMsg.addKeyValuePair<unsigned int>("Handshake", 0xBEEF);
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
     cli->printDebugMessage("Connected to client, starting control ISR.");
+    if (!wdt_ready)
+      configureWatchdog();
     pPmc->enableControlInterrupt();
   }
   return;
