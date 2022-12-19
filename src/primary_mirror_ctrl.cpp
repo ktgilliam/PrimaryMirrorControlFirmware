@@ -112,18 +112,15 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
     switch (currentMoveState)
     {
     case IDLE:
-        if (tipUpdated == true || tiltUpdated == true || focusUpdated == true)
+        if (checkForNewCommand())
         {
             currentMoveState = NEW_MOVE_CMD;
-            tipUpdated = false;
-            tiltUpdated = false;
-            focusUpdated = false;
         }
         break;
     case NEW_MOVE_CMD:
 
-        updateStepperCommands();
         currentMoveState = MOVE_IN_PROGRESS;
+        updateStepperCommands();
         // Intentional fall-through
     case MOVE_IN_PROGRESS:
         moveCompleteFlag = pingSteppers();
@@ -132,9 +129,13 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
         {
             currentMoveState = MOVE_COMPLETE;
         }
-        else if (tipUpdated == true && tiltUpdated == true && focusUpdated == true)
+        else
         {
-            currentMoveState = NEW_MOVE_CMD;
+            if (checkForNewCommand())
+            {
+                cli->printDebugMessage("Move interrupted.");
+                currentMoveState = NEW_MOVE_CMD;
+            }
         }
         static uint32_t counter = 0;
         // static uint32_t outerCounter = 0;
@@ -161,6 +162,33 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
     }
     // cli->printfDebugMessage("Leaving ISR");
 }
+
+bool PrimaryMirrorControl::checkForNewCommand()
+{
+    bool result = false;
+    if (controlMode == PMC::RELATIVE)
+    {
+        if (tipUpdated == true || tiltUpdated == true || focusUpdated == true)
+        {
+            result = true;
+        }
+    }
+    else if (controlMode == PMC::ABSOLUTE)
+    {
+        if (tipUpdated == true && tiltUpdated == true && focusUpdated == true)
+        {
+            result = true;
+        }
+    }
+    if (result)
+    {
+        tipUpdated = false;
+        tiltUpdated = false;
+        focusUpdated = false;
+    }
+    return result;
+}
+
 void PrimaryMirrorControl::enableControlInterrupt()
 {
     Timer1.start();

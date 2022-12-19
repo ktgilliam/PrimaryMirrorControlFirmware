@@ -183,6 +183,8 @@ public:
     void loadCurrentPositionsFromEeprom();
     void enableControlInterrupt();
     void setMoveNotifierFlag(volatile bool *flagPtr);
+
+    bool checkForNewCommand();
 private:
 
 
