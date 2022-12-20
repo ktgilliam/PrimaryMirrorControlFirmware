@@ -78,6 +78,8 @@ byte myIP[] IPAdd;
 unsigned int mPort = PORT;
 
 volatile bool moveCompleteFlag = false;
+volatile bool homingCompleteFlag = false;
+
 WDT_T4<WDT1> wdt;
 bool wdt_ready = false;
 void watchdogWarning()
@@ -136,10 +138,11 @@ void setup()
   commsService->registerMessageHandler<unsigned int>("SetFanSpeed", fanSpeed);
 
   delay(500);
-  // threads.setDefaultStackSize(6000);
-  // commthreadID = threads.addThread(comm_thread);
   pPmc->resetPositionsInEeprom();
+
   pPmc->setMoveNotifierFlag(&moveCompleteFlag);
+  pPmc->setHomingCompleteNotifierFlag(&homingCompleteFlag);
+
   pPmc->loadCurrentPositionsFromEeprom();
   cli->printDebugMessage("Initialization complete");
   // cli->printDebugMessage(DEBUG_CODE_ID_STR);
@@ -147,7 +150,7 @@ void setup()
   if (CrashReport)
   {
     CrashReport.printTo(TEST_SERIAL);
-    // CrashReport.clear();
+    TEST_SERIAL.print("\nPower cycle to clear this error.");
     while (1)
     {
       ;
@@ -157,18 +160,6 @@ void setup()
 
 void loop()
 {
-
-  // if (!commsService->Status())
-  // {
-  //   cli->printDebugMessage("Reconnecting to network.");
-  //   commsService->initializeEnetIface(PORT); // initialize
-  //   while (true)
-  //   {
-  //     cli->printDebugMessage("We are here.");
-  //     ;
-  //     ;
-  //   }
-  // }
   if (wdt_ready)
     wdt.feed();
   commsService->checkForNewClients();
@@ -183,10 +174,18 @@ void loop()
   if (moveCompleteFlag)
   {
     LFAST::CommsMessage newMsg;
-    newMsg.addKeyValuePair<unsigned int>("MoveComplete", 0xBEEF);
+    newMsg.addKeyValuePair<bool>("MoveComplete", true);
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
     cli->printDebugMessage("Move Complete.");
     moveCompleteFlag = false;
+  }
+  if(homingCompleteFlag)
+  {
+    LFAST::CommsMessage newMsg;
+    newMsg.addKeyValuePair<bool>("HomingComplete", true);
+    commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+    cli->printDebugMessage("Homing Complete.");
+    homingCompleteFlag = false;
   }
 }
 
@@ -209,17 +208,7 @@ void handshake(unsigned int val)
 
 void moveType(unsigned int type)
 {
-  // cli->printDebugMessage("INSIDE THE MOVE TYPE CALLBACK!!!!!!!!!!");
-  // if ((type == LFAST::PMC::ABSOLUTE) || (type == LFAST::PMC::RELATIVE))
-  // {
   pPmc->setControlMode(type);
-  // }
-  // else
-  // {
-  //   LFAST::CommsMessage newMsg;
-  //   newMsg.addKeyValuePair<unsigned int>("MoveError", 0x0BAD);
-  //   commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-  // }
 }
 
 void home(double v)
@@ -232,18 +221,18 @@ void home(double v)
 
 void changeTip(double targetTip)
 {
-  noInterrupts();
+  // noInterrupts();
   pPmc->setTipTarget(targetTip);
-  interrupts();
+  // interrupts();
 
   // moveMirror(LFAST::TIP, targetTip);
 }
 
 void changeTilt(double targetTilt)
 {
-  noInterrupts();
+  // noInterrupts();
   pPmc->setTiltTarget(targetTilt);
-  interrupts();
+  // interrupts();
 
   // moveMirror(LFAST::TILT, targetTilt);
 }
@@ -251,16 +240,16 @@ void changeTilt(double targetTilt)
 void changeFocus(double targetFocus)
 {
 
-  noInterrupts();
+  // noInterrupts();
   pPmc->setFocusTarget(targetFocus);
-  interrupts();
+  // interrupts();
 }
 
 void fanSpeed(unsigned int PWR)
 {
-  noInterrupts();
+  // noInterrupts();
   pPmc->setFanSpeed(PWR);
-  interrupts();
+  // interrupts();
 }
 
 // Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving

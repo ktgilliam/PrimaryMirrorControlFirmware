@@ -137,7 +137,10 @@ void PrimaryMirrorControl::setMoveNotifierFlag(volatile bool *flagPtr)
 {
     moveNotifierFlagPtr = flagPtr;
 }
-
+void PrimaryMirrorControl::setHomingCompleteNotifierFlag(volatile bool *flagPtr)
+{
+    homeNotifierFlagPtr = flagPtr;
+}
 void PrimaryMirrorControl::pingMirrorControlStateMachine()
 {
     // tip/tilt/focus adustment control parsing
@@ -248,20 +251,6 @@ void PrimaryMirrorControl::copyShadowToActive()
 
 void PrimaryMirrorControl::setControlMode(uint8_t mode)
 {
-#if 0
-    switch (controlMode)
-    {
-    case PMC::STOP:
-        cli->printDebugMessage("STOP");
-        break;
-    case PMC::RELATIVE:
-        cli->printDebugMessage("RELATIVE");
-        break;
-    case PMC::ABSOLUTE:
-        cli->printDebugMessage("ABSOLUTE");
-        break;
-    }
-#endif
     controlMode = mode;
 }
 
@@ -361,6 +350,7 @@ bool PrimaryMirrorControl::pingHomingRoutine()
         updateStatusFields();
         break;
     case HOMING_STEP_1:
+        // Quick move until all endstops are hit
         if (!limitFound_A)
             Stepper_A.runSpeed();
         if (!limitFound_B)
@@ -379,6 +369,7 @@ bool PrimaryMirrorControl::pingHomingRoutine()
         }
         break;
     case HOMING_STEP_2:
+        // Slow Move forward until endstops are cleared
         if (Stepper_A.currentPosition() < 100)
         {
             Stepper_A.runSpeed();
@@ -412,6 +403,7 @@ bool PrimaryMirrorControl::pingHomingRoutine()
 
         break;
     case HOMING_STEP_3:
+        // Very slow move backwards until endstops are hit again
         if (!limitFound_A)
             Stepper_A.runSpeed();
         if (!limitFound_B)
@@ -423,6 +415,8 @@ bool PrimaryMirrorControl::pingHomingRoutine()
         {
             enableLimitSwitchInterrupts();
             saveStepperPositionsToEeprom();
+            if(homeNotifierFlagPtr != nullptr)
+                *homeNotifierFlagPtr = true;
             homingComplete = true;
         }
         break;
@@ -436,7 +430,7 @@ void PrimaryMirrorControl::goHome(volatile double homingSpeed)
     homingSpeedStepsPerSec = (homingSpeed * MIRROR_RADIUS) / (MICRON_PER_STEP);
     currentMoveState = HOMING_IS_ACTIVE;
     currentHomingState = INITIALIZE;
-    controlMode = PMC::HOMING;
+    controlMode = PMC::RELATIVE;
 }
 void PrimaryMirrorControl::limitSwitchHandler(uint16_t motor)
 {
@@ -597,9 +591,6 @@ void PrimaryMirrorControl::updateStatusFields()
         cli->updatePersistentField(DeviceName, CMD_MODE_ROW, "RELATIVE");
         break;
     case PMC::ABSOLUTE:
-        cli->updatePersistentField(DeviceName, CMD_MODE_ROW, "ABSOLUTE");
-        break;
-    case PMC::HOMING:
         cli->updatePersistentField(DeviceName, CMD_MODE_ROW, "ABSOLUTE");
         break;
     }

@@ -54,7 +54,7 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #define IPAdd   {192, 168, 121, 177}
 #define GATEWAY 0,0,0,0
 #define SUBNET  0,0,0,0
-#define PORT    1883//4400
+#define PORT    4500
 
 #define UPDATE_PRD_US 1000
 

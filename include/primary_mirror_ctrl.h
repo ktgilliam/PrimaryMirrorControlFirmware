@@ -84,7 +84,6 @@ namespace LFAST
             STOP = 0,
             RELATIVE = 1,
             ABSOLUTE = 2,
-            HOMING = 3
         };
 
         enum UNIT_TYPES
@@ -184,12 +183,12 @@ public:
     void loadCurrentPositionsFromEeprom();
     void enableControlInterrupt();
     void setMoveNotifierFlag(volatile bool *flagPtr);
-
+    void setHomingCompleteNotifierFlag(volatile bool *flagPtr);
     bool checkForNewCommand();
     bool isHomingInProgress();
 
-
     void limitSwitchHandler(uint16_t axis);
+
 private:
     PrimaryMirrorControl();
     void hardware_setup();
@@ -238,6 +237,7 @@ private:
     HOMING_STATE currentHomingState;
 
     volatile bool *moveNotifierFlagPtr;
+    volatile bool *homeNotifierFlagPtr;
 };
 
 #endif
