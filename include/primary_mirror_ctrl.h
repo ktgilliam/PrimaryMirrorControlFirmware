@@ -50,10 +50,13 @@ Stop() – Immediately stops all motion
 #define DISABLE_STEPPER HIGH
 // void connectTerminalInterface(TerminalInterface* _cli);
 
+constexpr double MICROSTEP_RATIO = 1.0/16;
 // PMC Command Processing functions
 #define MIRROR_RADIUS_MICRONS 281880 // Radius of mirror actuator positions in um
-#define MICRON_PER_STEP 3            // conversion factor of stepper motor steps to vertical movement in um
-#define MM_PER_STEP 0.003
+constexpr double MICRON_PER_STEP = 3 * MICROSTEP_RATIO;            // conversion factor of stepper motor steps to vertical movement in um
+constexpr double STEPS_PER_MICRON = 1.0/MICRON_PER_STEP;
+// constexpr double MM_PER_STEP = (MICRON_PER_STEP/1000);
+// constexpr double STEP_PER_MM = 1.0 / MM_PER_STEP;
 
 #define MIRROR_MATH_COEFFS   \
     {                        \
@@ -69,10 +72,11 @@ enum PRIMARY_MIRROR_ROWS
     TILT_ROW,
     FOCUS_ROW,
     BLANK_ROW_1,
-    MOVE_SM_STATE_ROW,
+    STEPPERS_ENABLED,
     STEPPER_A_FB,
     STEPPER_B_FB,
     STEPPER_C_FB,
+    MOVE_SM_STATE_ROW,
 };
 
 namespace LFAST
@@ -147,10 +151,16 @@ public:
         double b_distance = gamma + (c[1] * tanAlpha + c[2] * tanBeta / cosAlpha);
         double c_distance = gamma + (c[1] * tanAlpha - c[2] * tanBeta / cosAlpha);
 
-        constexpr double STEP_PER_MM = 1.0 / MM_PER_STEP;
-        *a_steps = (T)(a_distance * STEP_PER_MM);
-        *b_steps = (T)(b_distance * STEP_PER_MM);
-        *c_steps = (T)(c_distance * STEP_PER_MM);
+
+        *a_steps = (T)(a_distance * STEPS_PER_MICRON);
+        *b_steps = (T)(b_distance * STEPS_PER_MICRON);
+        *c_steps = (T)(c_distance * STEPS_PER_MICRON);
+    }
+    void reset()
+    {
+        TIP_POS_ENG = 0;
+        TILT_POS_ENG = 0;
+        FOCUS_POS_ENG = 0;
     }
 };
 
@@ -188,7 +198,8 @@ public:
     bool isHomingInProgress();
 
     void limitSwitchHandler(uint16_t axis);
-
+    void enableSteppers(bool doEnable);
+    bool isEnabled() {return steppersEnabled;}
 private:
     PrimaryMirrorControl();
     void hardware_setup();
@@ -201,6 +212,7 @@ private:
     MirrorStates ShadowCommandStates_Eng;
     uint8_t controlMode;
 
+    bool steppersEnabled;
     bool focusUpdated;
     bool tipUpdated;
     bool tiltUpdated;
@@ -233,6 +245,8 @@ private:
         HOMING_STEP_1,
         HOMING_STEP_2,
         HOMING_STEP_3,
+        HOMING_STEP_4,
+        HOMING_STEP_5
     } HOMING_STATE;
     HOMING_STATE currentHomingState;
 

@@ -69,6 +69,7 @@ void getStatus(double lst);
 void getPositions(double lst);
 void stop(double lst);
 void fanSpeed(unsigned int val);
+void enableSteppers(bool en);
 
 LFAST::TcpCommsService *commsService;
 PrimaryMirrorControl *pPmc;
@@ -99,8 +100,8 @@ void configureWatchdog()
   config.trigger = 5;  /* in seconds, 0->128 */
   config.timeout = 10; /* in seconds, 0->128 */
   config.callback = watchdogWarning;
-  config.pin = 13;
-  pinMode(13, OUTPUT);
+  config.pin = LED_PIN;
+  pinMode(LED_PIN, OUTPUT);
   wdt_ready = true;
   wdt.begin(config);
 }
@@ -136,6 +137,7 @@ void setup()
   commsService->registerMessageHandler<double>("GetPositions", getPositions);
   commsService->registerMessageHandler<double>("Stop", stop);
   commsService->registerMessageHandler<unsigned int>("SetFanSpeed", fanSpeed);
+  commsService->registerMessageHandler<bool>("EnableSteppers", enableSteppers);
 
   delay(500);
   pPmc->resetPositionsInEeprom();
@@ -169,22 +171,26 @@ void loop()
     commsService->processClientData("PMCMessage");
   }
   commsService->stopDisconnectedClients();
-  delayMicroseconds(1000);
+  // delayMicroseconds(1000);
 
   if (moveCompleteFlag)
   {
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<bool>("MoveComplete", true);
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+#if ENABLE_TERMINAL_UPDATES
     cli->printDebugMessage("Move Complete.");
+#endif
     moveCompleteFlag = false;
   }
-  if(homingCompleteFlag)
+  if (homingCompleteFlag)
   {
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<bool>("HomingComplete", true);
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+#if ENABLE_TERMINAL_UPDATES
     cli->printDebugMessage("Homing Complete.");
+#endif
     homingCompleteFlag = false;
   }
 }
@@ -208,50 +214,56 @@ void handshake(unsigned int val)
 
 void moveType(unsigned int type)
 {
+  // no_interrupts();
   pPmc->setControlMode(type);
+  // interrupts();
 }
 
 void home(double v)
 {
   pPmc->goHome(v);
   LFAST::CommsMessage newMsg;
-  newMsg.addKeyValuePair<std::string>("Finding Home", "$OK^");
+  newMsg.addKeyValuePair<std::string>("FindHome", "$OK^");
   commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 }
 
 void changeTip(double targetTip)
 {
-  // noInterrupts();
-  pPmc->setTipTarget(targetTip);
+  // no_interrupts();
+  if (pPmc->isEnabled())
+    pPmc->setTipTarget(targetTip);
   // interrupts();
-
-  // moveMirror(LFAST::TIP, targetTip);
 }
 
 void changeTilt(double targetTilt)
 {
-  // noInterrupts();
-  pPmc->setTiltTarget(targetTilt);
+  // no_interrupts();
+  if (pPmc->isEnabled())
+    pPmc->setTiltTarget(targetTilt);
   // interrupts();
-
-  // moveMirror(LFAST::TILT, targetTilt);
 }
 
 void changeFocus(double targetFocus)
 {
-
-  // noInterrupts();
-  pPmc->setFocusTarget(targetFocus);
+  // no_interrupts();
+  if (pPmc->isEnabled())
+    pPmc->setFocusTarget(targetFocus);
   // interrupts();
 }
 
 void fanSpeed(unsigned int PWR)
 {
-  // noInterrupts();
+  // no_interrupts();
   pPmc->setFanSpeed(PWR);
   // interrupts();
 }
-
+void enableSteppers(bool en)
+{
+  pPmc->enableSteppers(en);
+  LFAST::CommsMessage newMsg;
+  newMsg.addKeyValuePair<bool>("SteppersEnabled", en);
+  commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
+}
 // Returns the status bits for each axis of motion. Bits are Faulted, Home and Moving
 void getStatus(double lst)
 {
