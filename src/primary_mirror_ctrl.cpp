@@ -295,9 +295,18 @@ void PrimaryMirrorControl::setFanSpeed(unsigned int PWR)
 // Immediately stops all motion
 void PrimaryMirrorControl::stopNow()
 {
-    Stepper_A.stop();
-    Stepper_B.stop();
-    Stepper_C.stop();
+    // Intentionally disregarding acceleration limits etc...
+    // This thing moves too slowly to worry about it
+    // Stepper_A.stop();
+    // Stepper_B.stop();
+    // Stepper_C.stop();
+    currentMoveState = IDLE;
+    currentHomingState = INITIALIZE;
+    controlMode = PMC::STOP;
+    
+    Stepper_A.moveTo(Stepper_A.currentPosition());
+    Stepper_B.moveTo(Stepper_B.currentPosition());
+    Stepper_C.moveTo(Stepper_C.currentPosition());
 
     saveStepperPositionsToEeprom();
 }
@@ -381,15 +390,15 @@ bool PrimaryMirrorControl::pingHomingRoutine()
         waitCounter = millis();
         if ((waitCounter - waitStartCount) > 1000)
         {
-            Stepper_A.setSpeed(homingSpeedStepsPerSec * 0.3);
-            Stepper_B.setSpeed(homingSpeedStepsPerSec * 0.3);
-            Stepper_C.setSpeed(homingSpeedStepsPerSec * 0.3);
+            Stepper_A.setSpeed(homingSpeedStepsPerSec * 0.5);
+            Stepper_B.setSpeed(homingSpeedStepsPerSec * 0.5);
+            Stepper_C.setSpeed(homingSpeedStepsPerSec * 0.5);
             currentHomingState = HOMING_STEP_3;
         }
         break;
     case HOMING_STEP_3:
         // Slow Move forward until endstops are cleared
-        if (Stepper_A.currentPosition() < 1000)
+        if (Stepper_A.currentPosition() < 500 * MICROSTEP_DIVIDER)
         {
             Stepper_A.runSpeed();
             Stepper_B.runSpeed();
@@ -416,9 +425,9 @@ bool PrimaryMirrorControl::pingHomingRoutine()
         waitCounter = millis();
         if ((waitCounter - waitStartCount) > 300)
         {
-            Stepper_A.setSpeed(homingSpeedStepsPerSec * -0.01);
-            Stepper_B.setSpeed(homingSpeedStepsPerSec * -0.01);
-            Stepper_C.setSpeed(homingSpeedStepsPerSec * -0.01);
+            Stepper_A.setSpeed(homingSpeedStepsPerSec * -0.1);
+            Stepper_B.setSpeed(homingSpeedStepsPerSec * -0.1);
+            Stepper_C.setSpeed(homingSpeedStepsPerSec * -0.1);
             currentHomingState = HOMING_STEP_5;
         }
         break;
@@ -455,6 +464,8 @@ void PrimaryMirrorControl::enableSteppers(bool doEnable)
     }
     else
     {
+        currentMoveState = IDLE;
+        controlMode = PMC::STOP;
         digitalWrite(STEP_ENABLE_PIN, DISABLE_STEPPER);
         cli->updatePersistentField(DeviceName, STEPPERS_ENABLED, "False");
     }

@@ -58,7 +58,7 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #define SUBNET  0,0,0,0
 #define PORT    4500
 
-#define UPDATE_PRD_US 500
+#define UPDATE_PRD_US 100
 #define TERM_UPDATE_PRD_SEC 0.2
 constexpr uint32_t TERM_UPDATE_COUNT = TERM_UPDATE_PRD_SEC / (UPDATE_PRD_US * 1e-6);
 #define MIRROR_RADIUS 281880  // Radius of mirror actuator positions in um 

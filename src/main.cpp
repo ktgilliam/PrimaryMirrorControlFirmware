@@ -277,12 +277,6 @@ void getStatus(double lst)
 void stop(double lst)
 {
   pPmc->stopNow();
-  // int i = 1;
-  // while ((ctrlthreadID - i) != commthreadID) // Kill all running control threads
-  // {
-  //   threads.kill(ctrlthreadID - i);
-  //   i++;
-  // }
   LFAST::CommsMessage newMsg;
   newMsg.addKeyValuePair<std::string>("Stopped", "$OK^");
   commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);

@@ -49,8 +49,8 @@ Stop() – Immediately stops all motion
 #define ENABLE_STEPPER LOW
 #define DISABLE_STEPPER HIGH
 // void connectTerminalInterface(TerminalInterface* _cli);
-
-constexpr double MICROSTEP_RATIO = 1.0/16;
+constexpr double MICROSTEP_DIVIDER = 16;
+constexpr double MICROSTEP_RATIO = 1.0/MICROSTEP_DIVIDER;
 // PMC Command Processing functions
 #define MIRROR_RADIUS_MICRONS 281880 // Radius of mirror actuator positions in um
 constexpr double MICRON_PER_STEP = 3 * MICROSTEP_RATIO;            // conversion factor of stepper motor steps to vertical movement in um
