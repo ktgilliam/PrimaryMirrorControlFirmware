@@ -43,6 +43,8 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #define STEP_ENABLE_PIN 8 
 #define FAN_CONTROL 0     // Unconfirmed
 
+#define LED_PIN 13
+
 #define SW 37
 #define VRx 38
 #define VRy 39
@@ -54,11 +56,14 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #define IPAdd   {192, 168, 121, 177}
 #define GATEWAY 0,0,0,0
 #define SUBNET  0,0,0,0
-#define PORT    1883//4400
+#define PORT    4500
 
-#define UPDATE_PRD_US 1000
-
+#define UPDATE_PRD_US 100
+#define TERM_UPDATE_PRD_SEC 0.2
+constexpr uint32_t TERM_UPDATE_COUNT = TERM_UPDATE_PRD_SEC / (UPDATE_PRD_US * 1e-6);
 #define MIRROR_RADIUS 281880  // Radius of mirror actuator positions in um 
+#define STEPPER_MAX_SPEED 800.0
+#define STEPPER_MAX_ACCEL 100.0
 
 constexpr uint32_t EEPROM_ADDR_START = 0;
 constexpr uint32_t EEPROM_ADDR_STEPPER_A_POS = (EEPROM_ADDR_START + 0);
@@ -67,5 +72,6 @@ constexpr uint32_t EEPROM_ADDR_STEPPER_C_POS = (EEPROM_ADDR_STEPPER_B_POS + size
 constexpr uint32_t EEPROM_ADDR_IS_HOMED = (EEPROM_ADDR_STEPPER_C_POS + sizeof(uint32_t));
 constexpr uint32_t EEPROM_ADDR_RESET_NOTIFIER = (EEPROM_ADDR_IS_HOMED + sizeof(uint32_t));
 
+#define ENABLE_TERMINAL_UPDATES 1
 
 #endif
