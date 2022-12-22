@@ -51,18 +51,23 @@ Stop() – Immediately stops all motion
 
 #define ENABLE_STEPPER LOW
 #define DISABLE_STEPPER HIGH
-// void connectTerminalInterface(TerminalInterface* _cli);
+
 constexpr double MICROSTEP_DIVIDER = 16;
 constexpr double MICROSTEP_RATIO = 1.0 / MICROSTEP_DIVIDER;
-// PMC Command Processing functions
-#define MIRROR_RADIUS_MICRONS 281880                        // Radius of mirror actuator positions in um
+
+constexpr double MIRROR_RADIUS_MICRONS = 281880.0;          // Radius of mirror actuator positions in um
 constexpr double MICRON_PER_STEP = 3.175 * MICROSTEP_RATIO; // conversion factor of stepper motor steps to vertical movement in um
 constexpr double STEPS_PER_MICRON = 1.0 / MICRON_PER_STEP;
+constexpr double STEPS_PER_MM = STEPS_PER_MICRON*1000;
+constexpr double MM_PER_STEP = 1.0/STEPS_PER_MM;
 
-#define STROKE_MICRON 12700.0
-#define MAX_STROKE_MICRON (0.5 * STROKE_MICRON)
-#define MIN_STROKE_MICRON (-0.5 * STROKE_MICRON)
-#define STROKE_STEPS (uint32_t)(STROKE_MICRON / MICRON_PER_STEP) // 4000*MICROSTEP_DIVIDER
+constexpr double STROKE_MICRON = 12700.0;
+constexpr double MAX_STROKE_MICRON = (0.5 * STROKE_MICRON);
+constexpr double MIN_STROKE_MICRON = (-0.5 * STROKE_MICRON);
+constexpr double STROKE_STEPS = (uint32_t)(STROKE_MICRON / MICRON_PER_STEP); // 4000*MICROSTEP_DIVIDER
+constexpr double STROKE_BOTTOM_STEPS = (-0.5*STROKE_STEPS);
+constexpr double STROKE_TOP_STEPS = (0.5*STROKE_STEPS);
+constexpr double STROKE_BOTTOM_MICRON = STROKE_BOTTOM_STEPS * MICRON_PER_STEP;
 
 #define MIRROR_MATH_COEFFS   \
     {                        \
@@ -226,7 +231,7 @@ public:
         int32_t a_steps_presat = (int32_t)(a_distance * STEPS_PER_MICRON);
         int32_t b_steps_presat = (int32_t)(b_distance * STEPS_PER_MICRON);
         int32_t c_steps_presat = (int32_t)(c_distance * STEPS_PER_MICRON);
-
+        
         constexpr int32_t stroke_ulim = STROKE_STEPS / 2;
         constexpr int32_t stroke_llim = -1 * stroke_ulim;
         int32_t a_steps_postsat = saturate(a_steps_presat, stroke_llim, stroke_ulim);
@@ -255,11 +260,17 @@ public:
         }
         return saturationFlag;
     }
-    void reset()
+    void resetToZero()
     {
-        TIP_POS_ENG = 0;
-        TILT_POS_ENG = 0;
-        FOCUS_POS_ENG = 0;
+        TIP_POS_ENG = 0.0;
+        TILT_POS_ENG = 0.0;
+        FOCUS_POS_ENG = 0.0;
+    }
+        void resetToHomed()
+    {
+        TIP_POS_ENG = 0.0;
+        TILT_POS_ENG = 0.0;
+        FOCUS_POS_ENG = STROKE_BOTTOM_MICRON;
     }
 };
 
@@ -342,11 +353,11 @@ private:
     typedef enum
     {
         INITIALIZE,
-        HOMING_STEP_1,
-        HOMING_STEP_2,
-        HOMING_STEP_3,
-        HOMING_STEP_4,
-        HOMING_STEP_5
+        HOMING_STEP_1, // Quick move until all endstops are hit
+        HOMING_STEP_2, // Short pause
+        HOMING_STEP_3, // Slow Move forward until endstops are cleared
+        HOMING_STEP_4, // Shorter pause
+        HOMING_STEP_5  // Very slow move backwards until endstops are hit again
     } HOMING_STATE;
     HOMING_STATE currentHomingState;
 

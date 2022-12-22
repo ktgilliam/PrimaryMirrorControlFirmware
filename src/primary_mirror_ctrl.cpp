@@ -351,6 +351,7 @@ bool PrimaryMirrorControl::pingHomingRoutine()
     uint32_t waitCounter = 0;
 
     bool homingComplete = false;
+    static HOMING_STATE prevHomingState = INITIALIZE;
     switch (currentHomingState)
     {
     case INITIALIZE:
@@ -393,7 +394,7 @@ bool PrimaryMirrorControl::pingHomingRoutine()
         break;
     case HOMING_STEP_3:
         // Slow Move forward until endstops are cleared
-        if (Stepper_A.currentPosition() < 500 * MICROSTEP_DIVIDER)
+        if (Stepper_A.currentPosition() < (STROKE_BOTTOM_STEPS + STEPS_PER_MM))
         {
             Stepper_A.runSpeed();
             Stepper_B.runSpeed();
@@ -441,11 +442,17 @@ bool PrimaryMirrorControl::pingHomingRoutine()
             saveStepperPositionsToEeprom();
             if (homeNotifierFlagPtr != nullptr)
                 *homeNotifierFlagPtr = true;
-            ShadowCommandStates_Eng.reset();
-            CommandStates_Eng.reset();
+            ShadowCommandStates_Eng.resetToHomed();
+            CommandStates_Eng.resetToHomed();
+
             homingComplete = true;
         }
         break;
+    }
+    if (prevHomingState != currentHomingState)
+    {
+        updateStatusFields();
+        prevHomingState = currentHomingState;
     }
 
     return homingComplete;
@@ -485,7 +492,7 @@ void PrimaryMirrorControl::limitSwitchHandler(uint16_t motor)
         if (currentMoveState != HOMING_IS_ACTIVE)
             attachInterrupt(digitalPinToInterrupt(A_LIMIT_SW_PIN), limitSwitch_A_ISR, FALLING);
         cli->printDebugMessage("A Limit Switch Detected");
-        Stepper_A.setCurrentPosition(-0.5*STROKE_STEPS);
+        Stepper_A.setCurrentPosition(STROKE_BOTTOM_STEPS);
         limitFound_A = true;
     }
     else if (motor == LFAST::PMC::MOTOR_B)
@@ -493,7 +500,7 @@ void PrimaryMirrorControl::limitSwitchHandler(uint16_t motor)
         if (currentMoveState != HOMING_IS_ACTIVE)
             attachInterrupt(digitalPinToInterrupt(B_LIMIT_SW_PIN), limitSwitch_B_ISR, FALLING);
         cli->printDebugMessage("B Limit Switch Detected");
-        Stepper_B.setCurrentPosition(-0.5*STROKE_STEPS);
+        Stepper_B.setCurrentPosition(STROKE_BOTTOM_STEPS);
         limitFound_B = true;
     }
     else if (motor == LFAST::PMC::MOTOR_C)
@@ -501,7 +508,7 @@ void PrimaryMirrorControl::limitSwitchHandler(uint16_t motor)
         if (currentMoveState != HOMING_IS_ACTIVE)
             attachInterrupt(digitalPinToInterrupt(C_LIMIT_SW_PIN), limitSwitch_C_ISR, FALLING);
         cli->printDebugMessage("C Limit Switch Detected");
-        Stepper_C.setCurrentPosition(-0.5*STROKE_STEPS);
+        Stepper_C.setCurrentPosition(STROKE_BOTTOM_STEPS);
         limitFound_C = true;
     }
 
@@ -617,19 +624,19 @@ void PrimaryMirrorControl::updateStatusFields()
             cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING (INIT)");
             break;
         case HOMING_STEP_1:
-            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING (STEP 1)");
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 1 (QUICK REVERSE)");
             break;
         case HOMING_STEP_2:
-            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING (STEP 2)");
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 2 (PAUSE)");
             break;
         case HOMING_STEP_3:
-            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING (STEP 3)");
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 3 (SLOW FORWARD)");
             break;
         case HOMING_STEP_4:
-            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING (STEP 4)");
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 4 (PAUSE)");
             break;
         case HOMING_STEP_5:
-            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING (STEP 5)");
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 5 (SLOW REVERSE)");
             break;
         }
 
