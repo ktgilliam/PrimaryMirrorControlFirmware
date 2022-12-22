@@ -54,6 +54,26 @@
         "locale": "cpp",
         "queue": "cpp",
         "cstdbool": "cpp",
-        "*.tpp": "cpp"
+        "*.tpp": "cpp",
+        "atomic": "cpp",
+        "bitset": "cpp",
+        "cfenv": "cpp",
+        "chrono": "cpp",
+        "complex": "cpp",
+        "condition_variable": "cpp",
+        "csetjmp": "cpp",
+        "csignal": "cpp",
+        "cstddef": "cpp",
+        "forward_list": "cpp",
+        "unordered_set": "cpp",
+        "ratio": "cpp",
+        "future": "cpp",
+        "memory": "cpp",
+        "mutex": "cpp",
+        "scoped_allocator": "cpp",
+        "thread": "cpp",
+        "regex": "cpp",
+        "typeindex": "cpp",
+        "valarray": "cpp"
     }
 }

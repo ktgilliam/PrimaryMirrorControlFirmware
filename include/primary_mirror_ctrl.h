@@ -42,41 +42,65 @@ Stop() – Immediately stops all motion
 #include <LFAST_Device.h>
 #include <TerminalInterface.h>
 #include <cmath>
+#include <algorithm>
 
 #include <MultiStepper.h>
+#include <math_util.h>
+#include "teensy41_device.h"
 // Setup functions
 
 #define ENABLE_STEPPER LOW
 #define DISABLE_STEPPER HIGH
-// void connectTerminalInterface(TerminalInterface* _cli);
-constexpr double MICROSTEP_DIVIDER = 16;
-constexpr double MICROSTEP_RATIO = 1.0/MICROSTEP_DIVIDER;
-// PMC Command Processing functions
-#define MIRROR_RADIUS_MICRONS 281880 // Radius of mirror actuator positions in um
-constexpr double MICRON_PER_STEP = 3 * MICROSTEP_RATIO;            // conversion factor of stepper motor steps to vertical movement in um
-constexpr double STEPS_PER_MICRON = 1.0/MICRON_PER_STEP;
-// constexpr double MM_PER_STEP = (MICRON_PER_STEP/1000);
-// constexpr double STEP_PER_MM = 1.0 / MM_PER_STEP;
 
-#define MIRROR_MATH_COEFFS   \
-    {                        \
-        281.3, -140.6, 243.6 \
-    }
+constexpr double MICROSTEP_DIVIDER = 16;
+constexpr double MICROSTEP_RATIO = 1.0 / MICROSTEP_DIVIDER;
+
+constexpr double MIRROR_RADIUS_MICRONS = 281880.0;          // Radius of mirror actuator positions in um
+constexpr double MICRON_PER_STEP = 3.175 * MICROSTEP_RATIO; // conversion factor of stepper motor steps to vertical movement in um
+constexpr double STEPS_PER_MICRON = 1.0 / MICRON_PER_STEP;
+constexpr double STEPS_PER_MM = STEPS_PER_MICRON*1000;
+constexpr double MM_PER_STEP = 1.0/STEPS_PER_MM;
+
+constexpr double STROKE_MICRON = 12700.0;
+constexpr double MAX_STROKE_MICRON = (0.5 * STROKE_MICRON);
+constexpr double MIN_STROKE_MICRON = (-0.5 * STROKE_MICRON);
+constexpr double STROKE_STEPS = (uint32_t)(STROKE_MICRON / MICRON_PER_STEP); // 4000*MICROSTEP_DIVIDER
+constexpr double STROKE_BOTTOM_STEPS = (-0.5*STROKE_STEPS);
+constexpr double STROKE_TOP_STEPS = (0.5*STROKE_STEPS);
+constexpr double STROKE_BOTTOM_MICRON = STROKE_BOTTOM_STEPS * MICRON_PER_STEP;
+
+
+constexpr double URAD_PER_RAD = 1000000.0;
+constexpr double RAD_PER_URAD = 1.0/URAD_PER_RAD;
+
+// Mirror coeffs assume millimeters!!
+const double MIRROR_MATH_COEFF_0 = 281.3;
+const double MIRROR_MATH_COEFF_1 = -140.6;
+const double MIRROR_MATH_COEFF_2 = 243.6;
+// Units don't matter for motor math coeffs.
+const double MOTOR_MATH_COEFF_0 = 0.001185025075130589607;
+const double MOTOR_MATH_COEFF_1 = 0.00205252363836930761;
+const double MOTOR_MATH_COEFF_2 = 1.0;
+
 
 // PM Control functions
 enum PRIMARY_MIRROR_ROWS
 {
     BLANK_ROW_0,
     CMD_MODE_ROW,
-    TIP_ROW,
-    TILT_ROW,
-    FOCUS_ROW,
+    TIP_CMD_ROW,
+    TILT_CMD_ROW,
+    FOCUS_CMD_ROW,
     BLANK_ROW_1,
+    TIP_FB_ROW,
+    TILT_FB_ROW,
+    FOCUS_FB_ROW,
+    BLANK_ROW_2,
     STEPPERS_ENABLED,
+    MOVE_SM_STATE_ROW,
     STEPPER_A_FB,
     STEPPER_B_FB,
     STEPPER_C_FB,
-    MOVE_SM_STATE_ROW,
 };
 
 namespace LFAST
@@ -119,48 +143,130 @@ namespace LFAST
     }
 };
 
+class MotorStates
+{
+private:
+
+    vectorX<double, 3> getMirrorVector(const int32_t *am, const int32_t *bm, const int32_t *cm) const
+    {
+        double A = (double)*am;
+        double B = (double)*bm;
+        double C = (double)*cm;
+        vectorX<double, 3> normalVector;
+
+        constexpr double c[3]{MOTOR_MATH_COEFF_0, MOTOR_MATH_COEFF_1, MOTOR_MATH_COEFF_2};
+        normalVector[0] = (c[0] * (B + C)) - 2 * c[0] * A;
+        normalVector[1] = c[1] * (C - B);
+        normalVector[2] = c[2];
+        normalVector.normalize();
+        return normalVector;
+    }
+
+public:
+    MotorStates(int32_t A, int32_t B, int32_t C) : A_steps(A), B_steps(B), C_steps(C) {}
+
+    MotorStates &operator=(MotorStates const &other)
+    {
+        noInterrupts();
+        A_steps = other.A_steps;
+        B_steps = other.B_steps;
+        C_steps = other.C_steps;
+        interrupts();
+        return *this;
+    }
+
+    int32_t A_steps;
+    int32_t B_steps;
+    int32_t C_steps;
+
+    void getTipTiltFocusFeedback(double *tip, double *tilt, double *focus)
+    {
+        auto mirrorVector = getMirrorVector(&A_steps, &B_steps, &C_steps);
+        auto norm_XZ = mirrorVector;
+        norm_XZ[1] = 0.0;
+        norm_XZ.normalize();
+        double tipAngle_rad = std::acos(norm_XZ[2]);
+        double tiltAngle_rad = std::acos(mirrorVector[2] * std::cos(tipAngle_rad) - mirrorVector[0] * std::sin(tipAngle_rad));
+        *tip = tipAngle_rad;
+        *tilt = tiltAngle_rad;
+        *focus = 0; // TBD, haven't decided best way to do this part yet
+    }
+};
 class MirrorStates
 {
 private:
-    const double c[3] = MIRROR_MATH_COEFFS; // = ; // Coefficients calculated based on  motor positions
 
 public:
     MirrorStates &operator=(MirrorStates const &other)
     {
         noInterrupts();
-        TIP_POS_ENG = other.TIP_POS_ENG;
-        TILT_POS_ENG = other.TILT_POS_ENG;
-        FOCUS_POS_ENG = other.FOCUS_POS_ENG;
+        TIP_POS_RAD = other.TIP_POS_RAD;
+        TILT_POS_RAD = other.TILT_POS_RAD;
+        FOCUS_POS_MM = other.FOCUS_POS_MM;
         interrupts();
         return *this;
     }
 
-    volatile double TIP_POS_ENG;
-    volatile double TILT_POS_ENG;
-    volatile double FOCUS_POS_ENG;
+    volatile double TIP_POS_RAD;
+    volatile double TILT_POS_RAD;
+    volatile double FOCUS_POS_MM;
 
-    template <typename T>
-    void getMotorPosnCommands(T *a_steps, T *b_steps, T *c_steps) const
+    bool getMotorPosnCommands(int32_t *a_steps, int32_t *b_steps, int32_t *c_steps) const
     {
-        double tanAlpha = std::tan(TIP_POS_ENG);
-        double cosAlpha = std::cos(TIP_POS_ENG);
-        double tanBeta = std::tan(TILT_POS_ENG);
-        double gamma = this->FOCUS_POS_ENG;
 
+        double tanAlpha = std::tan(TIP_POS_RAD);
+        double cosAlpha = std::cos(TIP_POS_RAD);
+        double tanBeta = std::tan(TILT_POS_RAD);
+        double gamma = FOCUS_POS_MM;
+
+        constexpr double c[3]{MIRROR_MATH_COEFF_0, MIRROR_MATH_COEFF_1, MIRROR_MATH_COEFF_2};
         double a_distance = gamma + (c[0] * tanAlpha);
         double b_distance = gamma + (c[1] * tanAlpha + c[2] * tanBeta / cosAlpha);
         double c_distance = gamma + (c[1] * tanAlpha - c[2] * tanBeta / cosAlpha);
 
+        int32_t a_steps_presat = (int32_t)(a_distance * STEPS_PER_MM);
+        int32_t b_steps_presat = (int32_t)(b_distance * STEPS_PER_MM);
+        int32_t c_steps_presat = (int32_t)(c_distance * STEPS_PER_MM);
+        
+        constexpr int32_t stroke_ulim = STROKE_STEPS / 2;
+        constexpr int32_t stroke_llim = -1 * stroke_ulim;
+        int32_t a_steps_postsat = saturate(a_steps_presat, stroke_llim, stroke_ulim);
+        int32_t b_steps_postsat = saturate(b_steps_presat, stroke_llim, stroke_ulim);
+        int32_t c_steps_postsat = saturate(c_steps_presat, stroke_llim, stroke_ulim);
 
-        *a_steps = (T)(a_distance * STEPS_PER_MICRON);
-        *b_steps = (T)(b_distance * STEPS_PER_MICRON);
-        *c_steps = (T)(c_distance * STEPS_PER_MICRON);
+        int32_t a_diff = a_steps_presat - a_steps_postsat;
+        int32_t b_diff = b_steps_presat - b_steps_postsat;
+        int32_t c_diff = c_steps_presat - c_steps_postsat;
+
+        int32_t max_diff = std::max({a_diff, b_diff, c_diff});
+
+        bool saturationFlag = false;
+        if (std::abs(max_diff) > 0)
+        {
+            *a_steps = a_steps_postsat - max_diff;
+            *b_steps = b_steps_postsat - max_diff;
+            *c_steps = c_steps_postsat - max_diff;
+            saturationFlag = true;
+        }
+        else
+        {
+            *a_steps = a_steps_presat;
+            *b_steps = b_steps_presat;
+            *c_steps = c_steps_presat;
+        }
+        return saturationFlag;
     }
-    void reset()
+    void resetToZero()
     {
-        TIP_POS_ENG = 0;
-        TILT_POS_ENG = 0;
-        FOCUS_POS_ENG = 0;
+        TIP_POS_RAD = 0.0;
+        TILT_POS_RAD = 0.0;
+        FOCUS_POS_MM = 0.0;
+    }
+        void resetToHomed()
+    {
+        TIP_POS_RAD = 0.0;
+        TILT_POS_RAD = 0.0;
+        FOCUS_POS_MM = STROKE_BOTTOM_MICRON;
     }
 };
 
@@ -199,7 +305,8 @@ public:
 
     void limitSwitchHandler(uint16_t axis);
     void enableSteppers(bool doEnable);
-    bool isEnabled() {return steppersEnabled;}
+    bool isEnabled() { return steppersEnabled; }
+
 private:
     PrimaryMirrorControl();
     void hardware_setup();
@@ -242,11 +349,11 @@ private:
     typedef enum
     {
         INITIALIZE,
-        HOMING_STEP_1,
-        HOMING_STEP_2,
-        HOMING_STEP_3,
-        HOMING_STEP_4,
-        HOMING_STEP_5
+        HOMING_STEP_1, // Quick move until all endstops are hit
+        HOMING_STEP_2, // Short pause
+        HOMING_STEP_3, // Short Move forward until endstops are cleared
+        HOMING_STEP_4, // Shorter pause
+        HOMING_STEP_5  // Very slow move backwards until endstops are hit again
     } HOMING_STATE;
     HOMING_STATE currentHomingState;
 
