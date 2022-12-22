@@ -248,44 +248,47 @@ void PrimaryMirrorControl::copyShadowToActive()
 void PrimaryMirrorControl::setControlMode(uint8_t mode)
 {
     controlMode = mode;
-    // if (controlMode == PMC::RELATIVE)
-    // ShadowCommandStates_Eng.reset();
 }
 
-void PrimaryMirrorControl::setTipTarget(double tgt)
+void PrimaryMirrorControl::setTipTarget(double tgt_urad)
 {
+    double tgt_rad_presat;
     if (controlMode == PMC::RELATIVE)
-        ShadowCommandStates_Eng.TIP_POS_ENG = ShadowCommandStates_Eng.TIP_POS_ENG + tgt;
+        tgt_rad_presat = ShadowCommandStates_Eng.TIP_POS_RAD + (tgt_urad*RAD_PER_URAD);
     else
-        ShadowCommandStates_Eng.TIP_POS_ENG = tgt;
+        tgt_rad_presat = (tgt_urad*RAD_PER_URAD);
 
+    // cli->printfDebugMessage("TIP UPDATE: %.8f", tgt_rad_presat * URAD_PER_RAD);
+    // TODO: Add angle saturation to limit command to mechanical range.
+    ShadowCommandStates_Eng.TIP_POS_RAD = tgt_rad_presat;
     tipUpdated = true;
-    // cli->printfDebugMessage("TargetTip = %6.4f", CommandStates_Eng.TIP_POS_ENG);
 }
 
-void PrimaryMirrorControl::setTiltTarget(double tgt)
+void PrimaryMirrorControl::setTiltTarget(double tgt_urad)
 {
+    double tgt_rad_presat;
     if (controlMode == PMC::RELATIVE)
-        ShadowCommandStates_Eng.TILT_POS_ENG = ShadowCommandStates_Eng.TILT_POS_ENG + tgt;
+        tgt_rad_presat = ShadowCommandStates_Eng.TILT_POS_RAD + (tgt_urad*RAD_PER_URAD);
     else
-        ShadowCommandStates_Eng.TILT_POS_ENG = tgt;
-
+        tgt_rad_presat = (tgt_urad*RAD_PER_URAD);
+    // cli->printfDebugMessage("TILT UPDATE: %.8f", tgt_rad_presat* URAD_PER_RAD);
+    // TODO: Add angle saturation to limit command to mechanical range.
+    ShadowCommandStates_Eng.TILT_POS_RAD = tgt_rad_presat;
     tiltUpdated = true;
-    // cli->printfDebugMessage("TargetTilt = %6.4f", CommandStates_Eng.TILT_POS_ENG);
 }
 
-void PrimaryMirrorControl::setFocusTarget(double tgt)
+void PrimaryMirrorControl::setFocusTarget(double tgt_um)
 {
     double focus_tgt_presat;
     if (controlMode == PMC::RELATIVE)
-        focus_tgt_presat = ShadowCommandStates_Eng.FOCUS_POS_ENG + tgt;
+        focus_tgt_presat = ShadowCommandStates_Eng.FOCUS_POS_MM + tgt_um;
     else
-        focus_tgt_presat = tgt;
+        focus_tgt_presat = tgt_um;
 
     double focus_tgt_post_sat = saturate(focus_tgt_presat, MIN_STROKE_MICRON, MAX_STROKE_MICRON);
-    ShadowCommandStates_Eng.FOCUS_POS_ENG = focus_tgt_post_sat;
+    ShadowCommandStates_Eng.FOCUS_POS_MM = focus_tgt_post_sat;
     focusUpdated = true;
-    // cli->printfDebugMessage("TargetFocus = %6.4f", CommandStates_Eng.FOCUS_POS_ENG);
+    // cli->printfDebugMessage("TargetFocus = %6.4f", CommandStates_Eng.FOCUS_POS_MM);
 }
 
 // Set the fan speed to a percentage S of full scale
@@ -385,15 +388,10 @@ bool PrimaryMirrorControl::pingHomingRoutine()
         // Short pause
         waitCounter = millis();
         if ((waitCounter - waitStartCount) > 1000)
-        {
-            Stepper_A.setSpeed(homingSpeedStepsPerSec * 0.5);
-            Stepper_B.setSpeed(homingSpeedStepsPerSec * 0.5);
-            Stepper_C.setSpeed(homingSpeedStepsPerSec * 0.5);
             currentHomingState = HOMING_STEP_3;
-        }
         break;
     case HOMING_STEP_3:
-        // Slow Move forward until endstops are cleared
+        // Short Move forward until endstops are cleared
         if (Stepper_A.currentPosition() < (STROKE_BOTTOM_STEPS + STEPS_PER_MM))
         {
             Stepper_A.runSpeed();
@@ -583,9 +581,9 @@ void PrimaryMirrorControl::setupPersistentFields()
         return;
 
     cli->addPersistentField(this->DeviceName, "[CMD MODE]", CMD_MODE_ROW);
-    cli->addPersistentField(this->DeviceName, "[TIP CMD]", TIP_ROW);
-    cli->addPersistentField(this->DeviceName, "[TILT CMD]", TILT_ROW);
-    cli->addPersistentField(this->DeviceName, "[FOCUS CMD]", FOCUS_ROW);
+    cli->addPersistentField(this->DeviceName, "[TIP CMD]", TIP_CMD_ROW);
+    cli->addPersistentField(this->DeviceName, "[TILT CMD]", TILT_CMD_ROW);
+    cli->addPersistentField(this->DeviceName, "[FOCUS CMD]", FOCUS_CMD_ROW);
     cli->addPersistentField(this->DeviceName, "[STATE]", MOVE_SM_STATE_ROW);
     cli->addPersistentField(this->DeviceName, "[ENABLED?]", STEPPERS_ENABLED);
     cli->addPersistentField(this->DeviceName, "[STEPPER A]", STEPPER_A_FB);
@@ -630,7 +628,7 @@ void PrimaryMirrorControl::updateStatusFields()
             cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 2 (PAUSE)");
             break;
         case HOMING_STEP_3:
-            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 3 (SLOW FORWARD)");
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 3 (SHORT FORWARD)");
             break;
         case HOMING_STEP_4:
             cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 4 (PAUSE)");
@@ -661,9 +659,9 @@ void PrimaryMirrorControl::updateStatusFields()
 void PrimaryMirrorControl::updateCommandFields()
 {
 #if ENABLE_TERMINAL_UPDATES
-    cli->updatePersistentField(DeviceName, TIP_ROW, CommandStates_Eng.TIP_POS_ENG);
-    cli->updatePersistentField(DeviceName, TILT_ROW, CommandStates_Eng.TILT_POS_ENG);
-    cli->updatePersistentField(DeviceName, FOCUS_ROW, CommandStates_Eng.FOCUS_POS_ENG);
+    cli->updatePersistentField(DeviceName, TIP_CMD_ROW, CommandStates_Eng.TIP_POS_RAD * URAD_PER_RAD, "%.10f urad");
+    cli->updatePersistentField(DeviceName, TILT_CMD_ROW, CommandStates_Eng.TILT_POS_RAD * URAD_PER_RAD, "%.10f urad");
+    cli->updatePersistentField(DeviceName, FOCUS_CMD_ROW, CommandStates_Eng.FOCUS_POS_MM, "%.10f um");
 #endif
 }
 
@@ -679,8 +677,8 @@ void PrimaryMirrorControl::updateFeedbackFields()
     cli->updatePersistentField(DeviceName, STEPPER_A_FB, aPos);
     cli->updatePersistentField(DeviceName, STEPPER_B_FB, bPos);
     cli->updatePersistentField(DeviceName, STEPPER_C_FB, cPos);
-    cli->updatePersistentField(DeviceName, TIP_FB_ROW, tipEst);
-    cli->updatePersistentField(DeviceName, TILT_FB_ROW, tiltEst);
-    cli->updatePersistentField(DeviceName, FOCUS_FB_ROW, focusEst);
+    cli->updatePersistentField(DeviceName, TIP_FB_ROW, tipEst * URAD_PER_RAD, "%.10f urad");
+    cli->updatePersistentField(DeviceName, TILT_FB_ROW, tiltEst * URAD_PER_RAD, "%.10f urad");
+    // cli->updatePersistentField(DeviceName, FOCUS_FB_ROW, focusEst);
 #endif
 }

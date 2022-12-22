@@ -69,32 +69,28 @@ constexpr double STROKE_BOTTOM_STEPS = (-0.5*STROKE_STEPS);
 constexpr double STROKE_TOP_STEPS = (0.5*STROKE_STEPS);
 constexpr double STROKE_BOTTOM_MICRON = STROKE_BOTTOM_STEPS * MICRON_PER_STEP;
 
-#define MIRROR_MATH_COEFFS   \
-    {                        \
-        281.3, -140.6, 243.6 \
-    }
 
-// #define MOTOR_MATH_COEFFS
-//     {
-//        243.6025537797171781,
-//        421.932,
-//        205567.4254427672568
-//     }
+constexpr double URAD_PER_RAD = 1000000.0;
+constexpr double RAD_PER_URAD = 1.0/URAD_PER_RAD;
 
-#define MOTOR_MATH_COEFFS                                \
-    {                                                    \
-        (243.6025537797171781) / (205567.4254427672568), \
-            (421.932) / (205567.4254427672568),          \
-            1.0                                          \
-    }
+// Mirror coeffs assume millimeters!!
+const double MIRROR_MATH_COEFF_0 = 281.3;
+const double MIRROR_MATH_COEFF_1 = -140.6;
+const double MIRROR_MATH_COEFF_2 = 243.6;
+// Units don't matter for motor math coeffs.
+const double MOTOR_MATH_COEFF_0 = 0.001185025075130589607;
+const double MOTOR_MATH_COEFF_1 = 0.00205252363836930761;
+const double MOTOR_MATH_COEFF_2 = 1.0;
+
+
 // PM Control functions
 enum PRIMARY_MIRROR_ROWS
 {
     BLANK_ROW_0,
     CMD_MODE_ROW,
-    TIP_ROW,
-    TILT_ROW,
-    FOCUS_ROW,
+    TIP_CMD_ROW,
+    TILT_CMD_ROW,
+    FOCUS_CMD_ROW,
     BLANK_ROW_1,
     TIP_FB_ROW,
     TILT_FB_ROW,
@@ -150,7 +146,6 @@ namespace LFAST
 class MotorStates
 {
 private:
-    const double c[3] = MOTOR_MATH_COEFFS; // Coefficients calculated based on motor positions
 
     vectorX<double, 3> getMirrorVector(const int32_t *am, const int32_t *bm, const int32_t *cm) const
     {
@@ -158,9 +153,12 @@ private:
         double B = (double)*bm;
         double C = (double)*cm;
         vectorX<double, 3> normalVector;
+
+        constexpr double c[3]{MOTOR_MATH_COEFF_0, MOTOR_MATH_COEFF_1, MOTOR_MATH_COEFF_2};
         normalVector[0] = (c[0] * (B + C)) - 2 * c[0] * A;
         normalVector[1] = c[1] * (C - B);
         normalVector[2] = c[2];
+        normalVector.normalize();
         return normalVector;
     }
 
@@ -183,54 +181,52 @@ public:
 
     void getTipTiltFocusFeedback(double *tip, double *tilt, double *focus)
     {
-        auto mirroVector = getMirrorVector(&A_steps, &B_steps, &C_steps);
-        mirroVector.normalize();
-        auto norm_XZ = mirroVector;
+        auto mirrorVector = getMirrorVector(&A_steps, &B_steps, &C_steps);
+        auto norm_XZ = mirrorVector;
         norm_XZ[1] = 0.0;
         norm_XZ.normalize();
-        double tipAngle = std::acos(norm_XZ[2]);
-        double tiltAngle = std::acos(mirroVector[2] * std::cos(tipAngle) - mirroVector[0] * std::sin(tipAngle));
-        *tip = tipAngle;
-        *tilt = tiltAngle;
-        // *focus = mean<double>(A_steps, B_steps, C_steps) * MICRON_PER_STEP;
-        *focus = 0;
+        double tipAngle_rad = std::acos(norm_XZ[2]);
+        double tiltAngle_rad = std::acos(mirrorVector[2] * std::cos(tipAngle_rad) - mirrorVector[0] * std::sin(tipAngle_rad));
+        *tip = tipAngle_rad;
+        *tilt = tiltAngle_rad;
+        *focus = 0; // TBD, haven't decided best way to do this part yet
     }
 };
 class MirrorStates
 {
 private:
-    const double c[3] = MIRROR_MATH_COEFFS; // Coefficients calculated based on  motor positions
 
 public:
     MirrorStates &operator=(MirrorStates const &other)
     {
         noInterrupts();
-        TIP_POS_ENG = other.TIP_POS_ENG;
-        TILT_POS_ENG = other.TILT_POS_ENG;
-        FOCUS_POS_ENG = other.FOCUS_POS_ENG;
+        TIP_POS_RAD = other.TIP_POS_RAD;
+        TILT_POS_RAD = other.TILT_POS_RAD;
+        FOCUS_POS_MM = other.FOCUS_POS_MM;
         interrupts();
         return *this;
     }
 
-    volatile double TIP_POS_ENG;
-    volatile double TILT_POS_ENG;
-    volatile double FOCUS_POS_ENG;
+    volatile double TIP_POS_RAD;
+    volatile double TILT_POS_RAD;
+    volatile double FOCUS_POS_MM;
 
     bool getMotorPosnCommands(int32_t *a_steps, int32_t *b_steps, int32_t *c_steps) const
     {
 
-        double tanAlpha = std::tan(TIP_POS_ENG);
-        double cosAlpha = std::cos(TIP_POS_ENG);
-        double tanBeta = std::tan(TILT_POS_ENG);
-        double gamma = this->FOCUS_POS_ENG;
+        double tanAlpha = std::tan(TIP_POS_RAD);
+        double cosAlpha = std::cos(TIP_POS_RAD);
+        double tanBeta = std::tan(TILT_POS_RAD);
+        double gamma = FOCUS_POS_MM;
 
+        constexpr double c[3]{MIRROR_MATH_COEFF_0, MIRROR_MATH_COEFF_1, MIRROR_MATH_COEFF_2};
         double a_distance = gamma + (c[0] * tanAlpha);
         double b_distance = gamma + (c[1] * tanAlpha + c[2] * tanBeta / cosAlpha);
         double c_distance = gamma + (c[1] * tanAlpha - c[2] * tanBeta / cosAlpha);
 
-        int32_t a_steps_presat = (int32_t)(a_distance * STEPS_PER_MICRON);
-        int32_t b_steps_presat = (int32_t)(b_distance * STEPS_PER_MICRON);
-        int32_t c_steps_presat = (int32_t)(c_distance * STEPS_PER_MICRON);
+        int32_t a_steps_presat = (int32_t)(a_distance * STEPS_PER_MM);
+        int32_t b_steps_presat = (int32_t)(b_distance * STEPS_PER_MM);
+        int32_t c_steps_presat = (int32_t)(c_distance * STEPS_PER_MM);
         
         constexpr int32_t stroke_ulim = STROKE_STEPS / 2;
         constexpr int32_t stroke_llim = -1 * stroke_ulim;
@@ -262,15 +258,15 @@ public:
     }
     void resetToZero()
     {
-        TIP_POS_ENG = 0.0;
-        TILT_POS_ENG = 0.0;
-        FOCUS_POS_ENG = 0.0;
+        TIP_POS_RAD = 0.0;
+        TILT_POS_RAD = 0.0;
+        FOCUS_POS_MM = 0.0;
     }
         void resetToHomed()
     {
-        TIP_POS_ENG = 0.0;
-        TILT_POS_ENG = 0.0;
-        FOCUS_POS_ENG = STROKE_BOTTOM_MICRON;
+        TIP_POS_RAD = 0.0;
+        TILT_POS_RAD = 0.0;
+        FOCUS_POS_MM = STROKE_BOTTOM_MICRON;
     }
 };
 
@@ -355,7 +351,7 @@ private:
         INITIALIZE,
         HOMING_STEP_1, // Quick move until all endstops are hit
         HOMING_STEP_2, // Short pause
-        HOMING_STEP_3, // Slow Move forward until endstops are cleared
+        HOMING_STEP_3, // Short Move forward until endstops are cleared
         HOMING_STEP_4, // Shorter pause
         HOMING_STEP_5  // Very slow move backwards until endstops are hit again
     } HOMING_STATE;
