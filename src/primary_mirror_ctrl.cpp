@@ -276,11 +276,14 @@ void PrimaryMirrorControl::setTiltTarget(double tgt)
 
 void PrimaryMirrorControl::setFocusTarget(double tgt)
 {
+    double focus_tgt_presat;
     if (controlMode == PMC::RELATIVE)
-        ShadowCommandStates_Eng.FOCUS_POS_ENG = ShadowCommandStates_Eng.FOCUS_POS_ENG + tgt;
+        focus_tgt_presat = ShadowCommandStates_Eng.FOCUS_POS_ENG + tgt;
     else
-        ShadowCommandStates_Eng.FOCUS_POS_ENG = tgt;
+        focus_tgt_presat = tgt;
 
+    double focus_tgt_post_sat = saturate(focus_tgt_presat, MIN_STROKE_MICRON, MAX_STROKE_MICRON);
+    ShadowCommandStates_Eng.FOCUS_POS_ENG = focus_tgt_post_sat;
     focusUpdated = true;
     // cli->printfDebugMessage("TargetFocus = %6.4f", CommandStates_Eng.FOCUS_POS_ENG);
 }
@@ -322,20 +325,12 @@ void PrimaryMirrorControl::updateStepperCommands()
     C_cmdSteps = 0;
     CommandStates_Eng.getMotorPosnCommands(&A_cmdSteps, &B_cmdSteps, &C_cmdSteps);
 
-    // if (controlMode == PMC::RELATIVE)
-    // {
-    //     Stepper_A.move(A_cmdSteps);
-    //     Stepper_B.move(B_cmdSteps);
-    //     Stepper_C.move(C_cmdSteps);
-    // }
-    // else
-    // {
 #if ENABLE_TERMINAL_UPDATES
-    cli->printfDebugMessage("Absolute Step Commands: [A/B/C]: %d, %d, %d", A_cmdSteps, B_cmdSteps, C_cmdSteps);
+    cli->printfDebugMessage("Step Commands: [A/B/C]: %d, %d, %d", A_cmdSteps, B_cmdSteps, C_cmdSteps);
 #endif
     long stepperCmdVector[3]{A_cmdSteps, B_cmdSteps, C_cmdSteps};
     steppers.moveTo(stepperCmdVector);
-    // }
+
     updateCommandFields();
 }
 
@@ -490,7 +485,7 @@ void PrimaryMirrorControl::limitSwitchHandler(uint16_t motor)
         if (currentMoveState != HOMING_IS_ACTIVE)
             attachInterrupt(digitalPinToInterrupt(A_LIMIT_SW_PIN), limitSwitch_A_ISR, FALLING);
         cli->printDebugMessage("A Limit Switch Detected");
-        Stepper_A.setCurrentPosition(0);
+        Stepper_A.setCurrentPosition(-0.5*STROKE_STEPS);
         limitFound_A = true;
     }
     else if (motor == LFAST::PMC::MOTOR_B)
@@ -498,7 +493,7 @@ void PrimaryMirrorControl::limitSwitchHandler(uint16_t motor)
         if (currentMoveState != HOMING_IS_ACTIVE)
             attachInterrupt(digitalPinToInterrupt(B_LIMIT_SW_PIN), limitSwitch_B_ISR, FALLING);
         cli->printDebugMessage("B Limit Switch Detected");
-        Stepper_B.setCurrentPosition(0);
+        Stepper_B.setCurrentPosition(-0.5*STROKE_STEPS);
         limitFound_B = true;
     }
     else if (motor == LFAST::PMC::MOTOR_C)
@@ -506,7 +501,7 @@ void PrimaryMirrorControl::limitSwitchHandler(uint16_t motor)
         if (currentMoveState != HOMING_IS_ACTIVE)
             attachInterrupt(digitalPinToInterrupt(C_LIMIT_SW_PIN), limitSwitch_C_ISR, FALLING);
         cli->printDebugMessage("C Limit Switch Detected");
-        Stepper_C.setCurrentPosition(0);
+        Stepper_C.setCurrentPosition(-0.5*STROKE_STEPS);
         limitFound_C = true;
     }
 

@@ -42,6 +42,7 @@ Stop() – Immediately stops all motion
 #include <LFAST_Device.h>
 #include <TerminalInterface.h>
 #include <cmath>
+#include <algorithm>
 
 #include <MultiStepper.h>
 #include <math_util.h>
@@ -54,11 +55,14 @@ Stop() – Immediately stops all motion
 constexpr double MICROSTEP_DIVIDER = 16;
 constexpr double MICROSTEP_RATIO = 1.0 / MICROSTEP_DIVIDER;
 // PMC Command Processing functions
-#define MIRROR_RADIUS_MICRONS 281880                    // Radius of mirror actuator positions in um
-constexpr double MICRON_PER_STEP = 3 * MICROSTEP_RATIO; // conversion factor of stepper motor steps to vertical movement in um
+#define MIRROR_RADIUS_MICRONS 281880                        // Radius of mirror actuator positions in um
+constexpr double MICRON_PER_STEP = 3.175 * MICROSTEP_RATIO; // conversion factor of stepper motor steps to vertical movement in um
 constexpr double STEPS_PER_MICRON = 1.0 / MICRON_PER_STEP;
-// constexpr double MM_PER_STEP = (MICRON_PER_STEP/1000);
-// constexpr double STEP_PER_MM = 1.0 / MM_PER_STEP;
+
+#define STROKE_MICRON 12700.0
+#define MAX_STROKE_MICRON (0.5 * STROKE_MICRON)
+#define MIN_STROKE_MICRON (-0.5 * STROKE_MICRON)
+#define STROKE_STEPS (uint32_t)(STROKE_MICRON / MICRON_PER_STEP) // 4000*MICROSTEP_DIVIDER
 
 #define MIRROR_MATH_COEFFS   \
     {                        \
@@ -75,8 +79,8 @@ constexpr double STEPS_PER_MICRON = 1.0 / MICRON_PER_STEP;
 #define MOTOR_MATH_COEFFS                                \
     {                                                    \
         (243.6025537797171781) / (205567.4254427672568), \
-        (421.932) / (205567.4254427672568),              \
-        1.0                                              \
+            (421.932) / (205567.4254427672568),          \
+            1.0                                          \
     }
 // PM Control functions
 enum PRIMARY_MIRROR_ROWS
@@ -172,7 +176,6 @@ public:
     int32_t B_steps;
     int32_t C_steps;
 
-
     void getTipTiltFocusFeedback(double *tip, double *tilt, double *focus)
     {
         auto mirroVector = getMirrorVector(&A_steps, &B_steps, &C_steps);
@@ -208,8 +211,9 @@ public:
     volatile double TILT_POS_ENG;
     volatile double FOCUS_POS_ENG;
 
-    void getMotorPosnCommands(int32_t *a_steps, int32_t *b_steps, int32_t *c_steps) const
+    bool getMotorPosnCommands(int32_t *a_steps, int32_t *b_steps, int32_t *c_steps) const
     {
+
         double tanAlpha = std::tan(TIP_POS_ENG);
         double cosAlpha = std::cos(TIP_POS_ENG);
         double tanBeta = std::tan(TILT_POS_ENG);
@@ -219,9 +223,37 @@ public:
         double b_distance = gamma + (c[1] * tanAlpha + c[2] * tanBeta / cosAlpha);
         double c_distance = gamma + (c[1] * tanAlpha - c[2] * tanBeta / cosAlpha);
 
-        *a_steps = (int32_t)(a_distance * STEPS_PER_MICRON);
-        *b_steps = (int32_t)(b_distance * STEPS_PER_MICRON);
-        *c_steps = (int32_t)(c_distance * STEPS_PER_MICRON);
+        int32_t a_steps_presat = (int32_t)(a_distance * STEPS_PER_MICRON);
+        int32_t b_steps_presat = (int32_t)(b_distance * STEPS_PER_MICRON);
+        int32_t c_steps_presat = (int32_t)(c_distance * STEPS_PER_MICRON);
+
+        constexpr int32_t stroke_ulim = STROKE_STEPS / 2;
+        constexpr int32_t stroke_llim = -1 * stroke_ulim;
+        int32_t a_steps_postsat = saturate(a_steps_presat, stroke_llim, stroke_ulim);
+        int32_t b_steps_postsat = saturate(b_steps_presat, stroke_llim, stroke_ulim);
+        int32_t c_steps_postsat = saturate(c_steps_presat, stroke_llim, stroke_ulim);
+
+        int32_t a_diff = a_steps_presat - a_steps_postsat;
+        int32_t b_diff = b_steps_presat - b_steps_postsat;
+        int32_t c_diff = c_steps_presat - c_steps_postsat;
+
+        int32_t max_diff = std::max({a_diff, b_diff, c_diff});
+
+        bool saturationFlag = false;
+        if (std::abs(max_diff) > 0)
+        {
+            *a_steps = a_steps_postsat - max_diff;
+            *b_steps = b_steps_postsat - max_diff;
+            *c_steps = c_steps_postsat - max_diff;
+            saturationFlag = true;
+        }
+        else
+        {
+            *a_steps = a_steps_presat;
+            *b_steps = b_steps_presat;
+            *c_steps = c_steps_presat;
+        }
+        return saturationFlag;
     }
     void reset()
     {
