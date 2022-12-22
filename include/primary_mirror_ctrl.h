@@ -44,17 +44,19 @@ Stop() – Immediately stops all motion
 #include <cmath>
 
 #include <MultiStepper.h>
+#include <math_util.h>
+#include "teensy41_device.h"
 // Setup functions
 
 #define ENABLE_STEPPER LOW
 #define DISABLE_STEPPER HIGH
 // void connectTerminalInterface(TerminalInterface* _cli);
 constexpr double MICROSTEP_DIVIDER = 16;
-constexpr double MICROSTEP_RATIO = 1.0/MICROSTEP_DIVIDER;
+constexpr double MICROSTEP_RATIO = 1.0 / MICROSTEP_DIVIDER;
 // PMC Command Processing functions
-#define MIRROR_RADIUS_MICRONS 281880 // Radius of mirror actuator positions in um
-constexpr double MICRON_PER_STEP = 3 * MICROSTEP_RATIO;            // conversion factor of stepper motor steps to vertical movement in um
-constexpr double STEPS_PER_MICRON = 1.0/MICRON_PER_STEP;
+#define MIRROR_RADIUS_MICRONS 281880                    // Radius of mirror actuator positions in um
+constexpr double MICRON_PER_STEP = 3 * MICROSTEP_RATIO; // conversion factor of stepper motor steps to vertical movement in um
+constexpr double STEPS_PER_MICRON = 1.0 / MICRON_PER_STEP;
 // constexpr double MM_PER_STEP = (MICRON_PER_STEP/1000);
 // constexpr double STEP_PER_MM = 1.0 / MM_PER_STEP;
 
@@ -63,6 +65,19 @@ constexpr double STEPS_PER_MICRON = 1.0/MICRON_PER_STEP;
         281.3, -140.6, 243.6 \
     }
 
+// #define MOTOR_MATH_COEFFS
+//     {
+//        243.6025537797171781,
+//        421.932,
+//        205567.4254427672568
+//     }
+
+#define MOTOR_MATH_COEFFS                                \
+    {                                                    \
+        (243.6025537797171781) / (205567.4254427672568), \
+        (421.932) / (205567.4254427672568),              \
+        1.0                                              \
+    }
 // PM Control functions
 enum PRIMARY_MIRROR_ROWS
 {
@@ -72,11 +87,15 @@ enum PRIMARY_MIRROR_ROWS
     TILT_ROW,
     FOCUS_ROW,
     BLANK_ROW_1,
+    TIP_FB_ROW,
+    TILT_FB_ROW,
+    FOCUS_FB_ROW,
+    BLANK_ROW_2,
     STEPPERS_ENABLED,
+    MOVE_SM_STATE_ROW,
     STEPPER_A_FB,
     STEPPER_B_FB,
     STEPPER_C_FB,
-    MOVE_SM_STATE_ROW,
 };
 
 namespace LFAST
@@ -119,10 +138,60 @@ namespace LFAST
     }
 };
 
+class MotorStates
+{
+private:
+    const double c[3] = MOTOR_MATH_COEFFS; // Coefficients calculated based on motor positions
+
+    vectorX<double, 3> getMirrorVector(const int32_t *am, const int32_t *bm, const int32_t *cm) const
+    {
+        double A = (double)*am;
+        double B = (double)*bm;
+        double C = (double)*cm;
+        vectorX<double, 3> normalVector;
+        normalVector[0] = (c[0] * (B + C)) - 2 * c[0] * A;
+        normalVector[1] = c[1] * (C - B);
+        normalVector[2] = c[2];
+        return normalVector;
+    }
+
+public:
+    MotorStates(int32_t A, int32_t B, int32_t C) : A_steps(A), B_steps(B), C_steps(C) {}
+
+    MotorStates &operator=(MotorStates const &other)
+    {
+        noInterrupts();
+        A_steps = other.A_steps;
+        B_steps = other.B_steps;
+        C_steps = other.C_steps;
+        interrupts();
+        return *this;
+    }
+
+    int32_t A_steps;
+    int32_t B_steps;
+    int32_t C_steps;
+
+
+    void getTipTiltFocusFeedback(double *tip, double *tilt, double *focus)
+    {
+        auto mirroVector = getMirrorVector(&A_steps, &B_steps, &C_steps);
+        mirroVector.normalize();
+        auto norm_XZ = mirroVector;
+        norm_XZ[1] = 0.0;
+        norm_XZ.normalize();
+        double tipAngle = std::acos(norm_XZ[2]);
+        double tiltAngle = std::acos(mirroVector[2] * std::cos(tipAngle) - mirroVector[0] * std::sin(tipAngle));
+        *tip = tipAngle;
+        *tilt = tiltAngle;
+        // *focus = mean<double>(A_steps, B_steps, C_steps) * MICRON_PER_STEP;
+        *focus = 0;
+    }
+};
 class MirrorStates
 {
 private:
-    const double c[3] = MIRROR_MATH_COEFFS; // = ; // Coefficients calculated based on  motor positions
+    const double c[3] = MIRROR_MATH_COEFFS; // Coefficients calculated based on  motor positions
 
 public:
     MirrorStates &operator=(MirrorStates const &other)
@@ -139,8 +208,7 @@ public:
     volatile double TILT_POS_ENG;
     volatile double FOCUS_POS_ENG;
 
-    template <typename T>
-    void getMotorPosnCommands(T *a_steps, T *b_steps, T *c_steps) const
+    void getMotorPosnCommands(int32_t *a_steps, int32_t *b_steps, int32_t *c_steps) const
     {
         double tanAlpha = std::tan(TIP_POS_ENG);
         double cosAlpha = std::cos(TIP_POS_ENG);
@@ -151,10 +219,9 @@ public:
         double b_distance = gamma + (c[1] * tanAlpha + c[2] * tanBeta / cosAlpha);
         double c_distance = gamma + (c[1] * tanAlpha - c[2] * tanBeta / cosAlpha);
 
-
-        *a_steps = (T)(a_distance * STEPS_PER_MICRON);
-        *b_steps = (T)(b_distance * STEPS_PER_MICRON);
-        *c_steps = (T)(c_distance * STEPS_PER_MICRON);
+        *a_steps = (int32_t)(a_distance * STEPS_PER_MICRON);
+        *b_steps = (int32_t)(b_distance * STEPS_PER_MICRON);
+        *c_steps = (int32_t)(c_distance * STEPS_PER_MICRON);
     }
     void reset()
     {
@@ -199,7 +266,8 @@ public:
 
     void limitSwitchHandler(uint16_t axis);
     void enableSteppers(bool doEnable);
-    bool isEnabled() {return steppersEnabled;}
+    bool isEnabled() { return steppersEnabled; }
+
 private:
     PrimaryMirrorControl();
     void hardware_setup();

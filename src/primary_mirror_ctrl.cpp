@@ -303,7 +303,7 @@ void PrimaryMirrorControl::stopNow()
     currentMoveState = IDLE;
     currentHomingState = INITIALIZE;
     controlMode = PMC::STOP;
-    
+
     Stepper_A.moveTo(Stepper_A.currentPosition());
     Stepper_B.moveTo(Stepper_B.currentPosition());
     Stepper_C.moveTo(Stepper_C.currentPosition());
@@ -585,10 +585,13 @@ void PrimaryMirrorControl::setupPersistentFields()
     cli->addPersistentField(this->DeviceName, "[TILT CMD]", TILT_ROW);
     cli->addPersistentField(this->DeviceName, "[FOCUS CMD]", FOCUS_ROW);
     cli->addPersistentField(this->DeviceName, "[STATE]", MOVE_SM_STATE_ROW);
-    cli->addPersistentField(this->DeviceName, "[ENABLED]", STEPPERS_ENABLED);
+    cli->addPersistentField(this->DeviceName, "[ENABLED?]", STEPPERS_ENABLED);
     cli->addPersistentField(this->DeviceName, "[STEPPER A]", STEPPER_A_FB);
     cli->addPersistentField(this->DeviceName, "[STEPPER B]", STEPPER_B_FB);
     cli->addPersistentField(this->DeviceName, "[STEPPER C]", STEPPER_C_FB);
+    cli->addPersistentField(this->DeviceName, "[TIP EST]", TIP_FB_ROW);
+    cli->addPersistentField(this->DeviceName, "[TILT EST]", TILT_FB_ROW);
+    cli->addPersistentField(this->DeviceName, "[FOCUS EST]", FOCUS_FB_ROW);
     updateStatusFields();
 }
 
@@ -665,8 +668,17 @@ void PrimaryMirrorControl::updateCommandFields()
 void PrimaryMirrorControl::updateFeedbackFields()
 {
 #if ENABLE_TERMINAL_UPDATES
-    cli->updatePersistentField(DeviceName, STEPPER_A_FB, Stepper_A.currentPosition());
-    cli->updatePersistentField(DeviceName, STEPPER_B_FB, Stepper_B.currentPosition());
-    cli->updatePersistentField(DeviceName, STEPPER_C_FB, Stepper_C.currentPosition());
+    auto aPos = Stepper_A.currentPosition();
+    auto bPos = Stepper_B.currentPosition();
+    auto cPos = Stepper_C.currentPosition();
+    MotorStates motorStates(aPos, bPos, cPos);
+    double tipEst, tiltEst, focusEst;
+    motorStates.getTipTiltFocusFeedback(&tipEst, &tiltEst, &focusEst);
+    cli->updatePersistentField(DeviceName, STEPPER_A_FB, aPos);
+    cli->updatePersistentField(DeviceName, STEPPER_B_FB, bPos);
+    cli->updatePersistentField(DeviceName, STEPPER_C_FB, cPos);
+    cli->updatePersistentField(DeviceName, TIP_FB_ROW, tipEst);
+    cli->updatePersistentField(DeviceName, TILT_FB_ROW, tiltEst);
+    cli->updatePersistentField(DeviceName, FOCUS_FB_ROW, focusEst);
 #endif
 }
