@@ -50,10 +50,16 @@ using namespace LFAST;
 void primaryMirrorControl_ISR()
 {
     noInterrupts();
+
     PrimaryMirrorControl &pmc = PrimaryMirrorControl::getMirrorController();
     pmc.copyShadowToActive();
     if (pmc.isEnabled())
+    {
+        // TOGGLE_DEBUG_PIN();
         pmc.pingMirrorControlStateMachine();
+        // delay(1);
+        // TOGGLE_DEBUG_PIN();
+    }
     interrupts();
 }
 
@@ -113,6 +119,7 @@ void PrimaryMirrorControl::hardware_setup()
     steppers.addStepper(Stepper_C);
 
     pinMode(STEP_ENABLE_PIN, OUTPUT);
+    this->enableSteppers(false);
 
     pinMode(A_LIMIT_SW_PIN, INPUT_PULLUP);
     pinMode(B_LIMIT_SW_PIN, INPUT_PULLUP);
@@ -162,8 +169,9 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
         updateStepperCommands();
         // Intentional fall-through
     case MOVE_IN_PROGRESS:
+        SET_DEBUG_PIN();
         moveCompleteFlag = pingSteppers();
-        saveStepperPositionsToEeprom();
+        CLEAR_DEBUG_PIN();
         if (moveCompleteFlag)
         {
             currentMoveState = MOVE_COMPLETE;
@@ -178,6 +186,7 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
         }
         break;
     case MOVE_COMPLETE:
+        saveStepperPositionsToEeprom();
         if (moveNotifierFlagPtr != nullptr)
             *moveNotifierFlagPtr = true;
         currentMoveState = IDLE;
@@ -187,6 +196,7 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
         currentMoveState = IDLE;
         break;
     case HOMING_IS_ACTIVE:
+
         bool homingComplete = pingHomingRoutine();
 
         if (homingComplete)
@@ -254,40 +264,86 @@ void PrimaryMirrorControl::setTipTarget(double tgt_urad)
 {
     double tgt_rad_presat;
     if (controlMode == PMC::RELATIVE)
-        tgt_rad_presat = ShadowCommandStates_Eng.TIP_POS_RAD + (tgt_urad*RAD_PER_URAD);
+    {
+        if (currentMoveState != MOVE_IN_PROGRESS)
+        {
+            // See comments in setFocusTarget
+            tgt_rad_presat = ShadowCommandStates_Eng.TIP_POS_RAD + (tgt_urad * RAD_PER_URAD);
+            tipUpdated = true;
+        }
+        else
+        {
+            tipUpdated = false;
+        }
+    }
     else
-        tgt_rad_presat = (tgt_urad*RAD_PER_URAD);
-
+    {
+        tgt_rad_presat = (tgt_urad * RAD_PER_URAD);
+        tipUpdated = true;
+    }
     // cli->printfDebugMessage("TIP UPDATE: %.8f", tgt_rad_presat * URAD_PER_RAD);
     // TODO: Add angle saturation to limit command to mechanical range.
-    ShadowCommandStates_Eng.TIP_POS_RAD = tgt_rad_presat;
-    tipUpdated = true;
+    if (tipUpdated)
+        ShadowCommandStates_Eng.TIP_POS_RAD = tgt_rad_presat;
 }
 
 void PrimaryMirrorControl::setTiltTarget(double tgt_urad)
 {
     double tgt_rad_presat;
     if (controlMode == PMC::RELATIVE)
-        tgt_rad_presat = ShadowCommandStates_Eng.TILT_POS_RAD + (tgt_urad*RAD_PER_URAD);
+    {
+        if (currentMoveState != MOVE_IN_PROGRESS)
+        {
+            tiltUpdated = true;
+            // See comments in setFocusTarget
+            tgt_rad_presat = ShadowCommandStates_Eng.TILT_POS_RAD + (tgt_urad * RAD_PER_URAD);
+        }
+        else
+        {
+            tiltUpdated = false;
+        }
+    }
     else
-        tgt_rad_presat = (tgt_urad*RAD_PER_URAD);
+    {
+        tiltUpdated = true;
+        tgt_rad_presat = (tgt_urad * RAD_PER_URAD);
+    }
     // cli->printfDebugMessage("TILT UPDATE: %.8f", tgt_rad_presat* URAD_PER_RAD);
     // TODO: Add angle saturation to limit command to mechanical range.
-    ShadowCommandStates_Eng.TILT_POS_RAD = tgt_rad_presat;
-    tiltUpdated = true;
+    if (tiltUpdated)
+        ShadowCommandStates_Eng.TILT_POS_RAD = tgt_rad_presat;
 }
 
 void PrimaryMirrorControl::setFocusTarget(double tgt_um)
 {
     double focus_tgt_presat;
     if (controlMode == PMC::RELATIVE)
-        focus_tgt_presat = ShadowCommandStates_Eng.FOCUS_POS_MM + tgt_um;
+    {
+        if (currentMoveState != MOVE_IN_PROGRESS)
+        {
+            // In order to process relative commands while one is in progress,
+            // I need to finish getting the motor->tip/tilt/focus transforms correct
+            // So we can see what the current position is before adding to it.
+            // For now, relative commands will only get processed if there is no move in progress.
+            focus_tgt_presat = ShadowCommandStates_Eng.FOCUS_POS_MM + tgt_um;
+            focusUpdated = true;
+        }
+        else
+        {
+            focusUpdated = false;
+        }
+    }
     else
+    {
         focus_tgt_presat = tgt_um;
-
-    double focus_tgt_post_sat = saturate(focus_tgt_presat, MIN_STROKE_MICRON, MAX_STROKE_MICRON);
-    ShadowCommandStates_Eng.FOCUS_POS_MM = focus_tgt_post_sat;
-    focusUpdated = true;
+        focusUpdated = true;
+    }
+    if (focusUpdated)
+    {
+        // double focus_tgt_post_sat = saturate(focus_tgt_presat, MIN_STROKE_MICRON, MAX_STROKE_MICRON);
+        // ShadowCommandStates_Eng.FOCUS_POS_MM = focus_tgt_post_sat;
+        ShadowCommandStates_Eng.FOCUS_POS_MM = focus_tgt_presat;
+    }
     // cli->printfDebugMessage("TargetFocus = %6.4f", CommandStates_Eng.FOCUS_POS_MM);
 }
 
@@ -460,22 +516,25 @@ void PrimaryMirrorControl::enableSteppers(bool doEnable)
     if (doEnable)
     {
         digitalWrite(STEP_ENABLE_PIN, ENABLE_STEPPER);
-        cli->updatePersistentField(DeviceName, STEPPERS_ENABLED, "True");
+        if (cli != nullptr)
+            cli->updatePersistentField(DeviceName, STEPPERS_ENABLED, "True");
     }
     else
     {
         currentMoveState = IDLE;
         controlMode = PMC::STOP;
         digitalWrite(STEP_ENABLE_PIN, DISABLE_STEPPER);
-        cli->updatePersistentField(DeviceName, STEPPERS_ENABLED, "False");
+        if (cli != nullptr)
+            cli->updatePersistentField(DeviceName, STEPPERS_ENABLED, "False");
     }
     if (cli != nullptr)
-
         steppersEnabled = doEnable;
 }
 // Move all actuators to home positions at velocity V (steps/sec)
 void PrimaryMirrorControl::goHome(volatile double homingSpeed)
 {
+
+
     homingSpeedStepsPerSec = (homingSpeed * MIRROR_RADIUS) / (MICRON_PER_STEP);
     currentMoveState = HOMING_IS_ACTIVE;
     currentHomingState = INITIALIZE;

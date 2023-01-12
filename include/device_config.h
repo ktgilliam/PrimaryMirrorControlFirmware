@@ -58,12 +58,12 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #define SUBNET  0,0,0,0
 #define PORT    4500
 
-#define UPDATE_PRD_US 100
+#define UPDATE_PRD_US 100 // TODO: Set this according to the stepper speed, so that it's not interrupting more often than it needs to.
 #define TERM_UPDATE_PRD_SEC 0.2
 constexpr uint32_t TERM_UPDATE_COUNT = TERM_UPDATE_PRD_SEC / (UPDATE_PRD_US * 1e-6);
 #define MIRROR_RADIUS 281880  // Radius of mirror actuator positions in um 
-#define STEPPER_MAX_SPEED 800.0
-#define STEPPER_MAX_ACCEL 100.0
+#define STEPPER_MAX_SPEED 2400.0
+#define STEPPER_MAX_ACCEL 2000.0
 
 constexpr uint32_t EEPROM_ADDR_START = 0;
 constexpr uint32_t EEPROM_ADDR_STEPPER_A_POS = (EEPROM_ADDR_START + 0);

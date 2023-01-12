@@ -81,6 +81,7 @@ unsigned int mPort = PORT;
 volatile bool moveCompleteFlag = false;
 volatile bool homingCompleteFlag = false;
 
+#define WATCHDOG_ENABLED 1
 WDT_T4<WDT1> wdt;
 bool wdt_ready = false;
 void watchdogWarning()
@@ -102,8 +103,10 @@ void configureWatchdog()
   config.callback = watchdogWarning;
   config.pin = LED_PIN;
   pinMode(LED_PIN, OUTPUT);
+#if WATCHDOG_ENABLED
   wdt_ready = true;
   wdt.begin(config);
+#endif
 }
 
 void setup()
@@ -160,10 +163,14 @@ void setup()
   }
 }
 
+
 void loop()
 {
+#if WATCHDOG_ENABLED
   if (wdt_ready)
     wdt.feed();
+#endif
+
   commsService->checkForNewClients();
   if (commsService->checkForNewClientData())
   {
