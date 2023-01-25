@@ -613,7 +613,7 @@ void PrimaryMirrorControl::resetPositionsInEeprom()
     EEPROM.put(EEPROM_ADDR_STEPPER_A_POS, 0);
     EEPROM.put(EEPROM_ADDR_STEPPER_B_POS, 0);
     EEPROM.put(EEPROM_ADDR_STEPPER_C_POS, 0);
-    cli->printDebugMessage("Resetting eeprom positions", LFAST::WARNING);
+    cli->printDebugMessage("Resetting eeprom positions", LFAST::WARNING_MESSAGE);
 }
 
 void PrimaryMirrorControl::loadCurrentPositionsFromEeprom()

@@ -88,7 +88,7 @@ void watchdogWarning()
 {
   if (cli != nullptr)
   {
-    cli->printDebugMessage("Danger - feed the dog!", LFAST::WARNING);
+    cli->printDebugMessage("Danger - feed the dog!", LFAST::WARNING_MESSAGE);
   }
 }
 void configureWatchdog()
