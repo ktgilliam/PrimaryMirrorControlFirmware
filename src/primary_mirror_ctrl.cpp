@@ -22,7 +22,12 @@ Implementation of Primary Mirror Control Functions.
 
 #include "primary_mirror_ctrl.h"
 #include <Arduino.h>
+#if EEPROM_ENABLED
 #include <EEPROM.h>
+#endif
+#if FRAM_ENABLED
+#include <FRAM.h>
+#endif
 #include <cstring>
 #include <cmath>
 #include <cinttypes>
@@ -35,6 +40,13 @@ Implementation of Primary Mirror Control Functions.
 
 #include <MultiStepper.h>
 #include <AccelStepper.h>
+
+#if FRAM_ENABLED
+FRAM fram;
+uint32_t start;
+uint32_t stop;
+uint32_t sizeInBytes = 0;
+#endif
 
 AccelStepper Stepper_A(AccelStepper::DRIVER, A_STEP, A_DIR);
 AccelStepper Stepper_B(AccelStepper::DRIVER, B_STEP, B_DIR);
@@ -100,6 +112,22 @@ PrimaryMirrorControl &PrimaryMirrorControl::getMirrorController()
 {
     static PrimaryMirrorControl instance;
     return instance;
+}
+
+void PrimaryMirrorControl::initializeNVRAM()
+{
+#if FRAM_ENABLED
+    int rv = fram.begin(0x50);
+    if (rv != 0)
+    {
+        cli->printfDebugMessage("FRAM Init failed: %d", rv);
+    }
+    else
+    {
+        // cli->printfDebugMessage(__FUNCTION__);
+        cli->printfDebugMessage("FRAM ID: %d, Prod: %d, MemKb: ", fram.getManufacturerID(), fram.getProductID(), fram.getSize());
+    }
+#endif
 }
 
 void PrimaryMirrorControl::hardware_setup()
@@ -171,6 +199,7 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
     case MOVE_IN_PROGRESS:
         SET_DEBUG_PIN();
         moveCompleteFlag = pingSteppers();
+        // saveStepperPositionsToNVRAM();
         CLEAR_DEBUG_PIN();
         if (moveCompleteFlag)
         {
@@ -186,7 +215,7 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
         }
         break;
     case MOVE_COMPLETE:
-        saveStepperPositionsToEeprom();
+        saveStepperPositionsToNVRAM();
         if (moveNotifierFlagPtr != nullptr)
             *moveNotifierFlagPtr = true;
         currentMoveState = IDLE;
@@ -370,7 +399,7 @@ void PrimaryMirrorControl::stopNow()
     Stepper_B.moveTo(Stepper_B.currentPosition());
     Stepper_C.moveTo(Stepper_C.currentPosition());
 
-    saveStepperPositionsToEeprom();
+    saveStepperPositionsToNVRAM();
 }
 
 // Move each axis with velocity V to an absolute X,Y position with respect to “home”
@@ -434,7 +463,7 @@ bool PrimaryMirrorControl::pingHomingRoutine()
         // delay(1);
         if (limitFound_A && limitFound_B && limitFound_C)
         {
-            saveStepperPositionsToEeprom();
+            saveStepperPositionsToNVRAM();
             currentHomingState = HOMING_STEP_2;
             waitStartCount = millis();
             updateStatusFields();
@@ -493,7 +522,7 @@ bool PrimaryMirrorControl::pingHomingRoutine()
         if (limitFound_A && limitFound_B && limitFound_C)
         {
             enableLimitSwitchInterrupts();
-            saveStepperPositionsToEeprom();
+            saveStepperPositionsToNVRAM();
             if (homeNotifierFlagPtr != nullptr)
                 *homeNotifierFlagPtr = true;
             ShadowCommandStates_Eng.resetToHomed();
@@ -533,7 +562,6 @@ void PrimaryMirrorControl::enableSteppers(bool doEnable)
 // Move all actuators to home positions at velocity V (steps/sec)
 void PrimaryMirrorControl::goHome(volatile double homingSpeed)
 {
-
 
     homingSpeedStepsPerSec = (homingSpeed * MIRROR_RADIUS) / (MICRON_PER_STEP);
     currentMoveState = HOMING_IS_ACTIVE;
@@ -598,35 +626,54 @@ double PrimaryMirrorControl::getStepperPosition(uint8_t motor)
         return 0.0;
 }
 
-void PrimaryMirrorControl::saveStepperPositionsToEeprom()
+void PrimaryMirrorControl::saveStepperPositionsToNVRAM()
 {
     int Aposition = Stepper_A.currentPosition();
     int Bposition = Stepper_B.currentPosition();
     int Cposition = Stepper_C.currentPosition();
-    EEPROM.put(EEPROM_ADDR_STEPPER_A_POS, Aposition);
-    EEPROM.put(EEPROM_ADDR_STEPPER_B_POS, Bposition);
-    EEPROM.put(EEPROM_ADDR_STEPPER_C_POS, Cposition);
+#if EEPROM_ENABLED
+    EEPROM.put(NVRAM_ADDR_STEPPER_A_POS, Aposition);
+    EEPROM.put(NVRAM_ADDR_STEPPER_B_POS, Bposition);
+    EEPROM.put(NVRAM_ADDR_STEPPER_C_POS, Cposition);
+#endif
+#if FRAM_ENABLED
+    fram.write32(NVRAM_ADDR_STEPPER_A_POS,Aposition);
+    fram.write32(NVRAM_ADDR_STEPPER_B_POS,Bposition);
+    fram.write32(NVRAM_ADDR_STEPPER_C_POS,Cposition);
+#endif
 }
 
-void PrimaryMirrorControl::resetPositionsInEeprom()
+void PrimaryMirrorControl::resetPositionsInNVRAM()
 {
-    EEPROM.put(EEPROM_ADDR_STEPPER_A_POS, 0);
-    EEPROM.put(EEPROM_ADDR_STEPPER_B_POS, 0);
-    EEPROM.put(EEPROM_ADDR_STEPPER_C_POS, 0);
-    cli->printDebugMessage("Resetting eeprom positions", LFAST::WARNING_MESSAGE);
+#if EEPROM_ENABLED
+    EEPROM.put(NVRAM_ADDR_STEPPER_A_POS, 0);
+    EEPROM.put(NVRAM_ADDR_STEPPER_B_POS, 0);
+    EEPROM.put(NVRAM_ADDR_STEPPER_C_POS, 0);
+#endif
+#if FRAM_ENABLED
+    fram.write32(NVRAM_ADDR_STEPPER_A_POS,0);
+    fram.write32(NVRAM_ADDR_STEPPER_B_POS,0);
+    fram.write32(NVRAM_ADDR_STEPPER_C_POS,0);
+#endif
+    cli->printDebugMessage("Resetting positions in NVRAM", LFAST::WARNING_MESSAGE);
 }
 
-void PrimaryMirrorControl::loadCurrentPositionsFromEeprom()
+void PrimaryMirrorControl::loadCurrentPositionsFromNVRAM()
 {
     int Aposition = 0;
     int Bposition = 0;
     int Cposition = 0;
-
-    EEPROM.get(EEPROM_ADDR_STEPPER_A_POS, Aposition);
-    EEPROM.get(EEPROM_ADDR_STEPPER_B_POS, Bposition);
-    EEPROM.get(EEPROM_ADDR_STEPPER_C_POS, Cposition);
-
-    cli->printfDebugMessage("EEPROM Load [A/B/C]: %d, %d, %d", Aposition, Bposition, Cposition);
+#if EEPROM_ENABLED
+    EEPROM.get(NVRAM_ADDR_STEPPER_A_POS, Aposition);
+    EEPROM.get(NVRAM_ADDR_STEPPER_B_POS, Bposition);
+    EEPROM.get(NVRAM_ADDR_STEPPER_C_POS, Cposition);
+#endif
+#if FRAM_ENABLED
+    Aposition = fram.read32(NVRAM_ADDR_STEPPER_A_POS);
+    Bposition = fram.read32(NVRAM_ADDR_STEPPER_B_POS);
+    Cposition = fram.read32(NVRAM_ADDR_STEPPER_C_POS);
+#endif
+    cli->printfDebugMessage("NVRAM Load [A/B/C]: %d, %d, %d", Aposition, Bposition, Cposition);
     Stepper_A.setCurrentPosition(Aposition);
     Stepper_B.setCurrentPosition(Bposition);
     Stepper_C.setCurrentPosition(Cposition);

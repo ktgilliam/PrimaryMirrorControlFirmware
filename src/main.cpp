@@ -80,6 +80,7 @@ unsigned int mPort = PORT;
 
 volatile bool moveCompleteFlag = false;
 volatile bool homingCompleteFlag = false;
+volatile bool handShookFlag = false;
 
 #define WATCHDOG_ENABLED 1
 WDT_T4<WDT1> wdt;
@@ -143,12 +144,13 @@ void setup()
   commsService->registerMessageHandler<bool>("EnableSteppers", enableSteppers);
 
   delay(500);
-  pPmc->resetPositionsInEeprom();
+  pPmc->initializeNVRAM();
+  // pPmc->resetPositionsInNVRAM();
 
   pPmc->setMoveNotifierFlag(&moveCompleteFlag);
   pPmc->setHomingCompleteNotifierFlag(&homingCompleteFlag);
 
-  pPmc->loadCurrentPositionsFromEeprom();
+  pPmc->loadCurrentPositionsFromNVRAM();
   cli->printDebugMessage("Initialization complete");
   // cli->printDebugMessage(DEBUG_CODE_ID_STR);
 
@@ -162,7 +164,6 @@ void setup()
     }
   }
 }
-
 
 void loop()
 {
@@ -179,7 +180,8 @@ void loop()
   }
   commsService->stopDisconnectedClients();
   // delayMicroseconds(1000);
-
+  if (handShookFlag && pPmc->moveInProgress())
+    pPmc->saveStepperPositionsToNVRAM();
   if (moveCompleteFlag)
   {
     LFAST::CommsMessage newMsg;
@@ -215,6 +217,7 @@ void handshake(unsigned int val)
     if (!wdt_ready)
       configureWatchdog();
     pPmc->enableControlInterrupt();
+    handShookFlag = true;
   }
   return;
 }

@@ -294,9 +294,9 @@ public:
     bool getStatus(uint8_t motor);
     double getStepperPosition(uint8_t motor);
 
-    void saveStepperPositionsToEeprom();
-    void resetPositionsInEeprom();
-    void loadCurrentPositionsFromEeprom();
+    void saveStepperPositionsToNVRAM();
+    void resetPositionsInNVRAM();
+    void loadCurrentPositionsFromNVRAM();
     void enableControlInterrupt();
     void setMoveNotifierFlag(volatile bool *flagPtr);
     void setHomingCompleteNotifierFlag(volatile bool *flagPtr);
@@ -306,7 +306,8 @@ public:
     void limitSwitchHandler(uint16_t axis);
     void enableSteppers(bool doEnable);
     bool isEnabled() { return steppersEnabled; }
-
+    bool moveInProgress(){return currentMoveState == MOVE_IN_PROGRESS;}
+    void initializeNVRAM();
 private:
     PrimaryMirrorControl();
     void hardware_setup();
