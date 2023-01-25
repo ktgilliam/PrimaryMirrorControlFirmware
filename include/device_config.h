@@ -65,12 +65,12 @@ constexpr uint32_t TERM_UPDATE_COUNT = TERM_UPDATE_PRD_SEC / (UPDATE_PRD_US * 1e
 #define STEPPER_MAX_SPEED 2400.0
 #define STEPPER_MAX_ACCEL 2000.0
 
-constexpr uint32_t EEPROM_ADDR_START = 0;
-constexpr uint32_t EEPROM_ADDR_STEPPER_A_POS = (EEPROM_ADDR_START + 0);
-constexpr uint32_t EEPROM_ADDR_STEPPER_B_POS = (EEPROM_ADDR_STEPPER_A_POS + sizeof(uint32_t));
-constexpr uint32_t EEPROM_ADDR_STEPPER_C_POS = (EEPROM_ADDR_STEPPER_B_POS + sizeof(uint32_t));
-constexpr uint32_t EEPROM_ADDR_IS_HOMED = (EEPROM_ADDR_STEPPER_C_POS + sizeof(uint32_t));
-constexpr uint32_t EEPROM_ADDR_RESET_NOTIFIER = (EEPROM_ADDR_IS_HOMED + sizeof(uint32_t));
+constexpr uint32_t NVRAM_ADDR_START = 0;
+constexpr uint32_t NVRAM_ADDR_STEPPER_A_POS = (NVRAM_ADDR_START + 0);
+constexpr uint32_t NVRAM_ADDR_STEPPER_B_POS = (NVRAM_ADDR_STEPPER_A_POS + sizeof(uint32_t));
+constexpr uint32_t NVRAM_ADDR_STEPPER_C_POS = (NVRAM_ADDR_STEPPER_B_POS + sizeof(uint32_t));
+constexpr uint32_t NVRAM_ADDR_IS_HOMED = (NVRAM_ADDR_STEPPER_C_POS + sizeof(uint32_t));
+constexpr uint32_t NVRAM_ADDR_RESET_NOTIFIER = (NVRAM_ADDR_IS_HOMED + sizeof(uint32_t));
 
 #define ENABLE_TERMINAL_UPDATES 1
 
