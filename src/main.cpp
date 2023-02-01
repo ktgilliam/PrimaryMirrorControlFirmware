@@ -145,7 +145,7 @@ void setup()
 
   delay(500);
   pPmc->initializeNVRAM();
-  // pPmc->resetPositionsInNVRAM();
+  pPmc->resetPositionsInNVRAM();
 
   pPmc->setMoveNotifierFlag(&moveCompleteFlag);
   pPmc->setHomingCompleteNotifierFlag(&homingCompleteFlag);
