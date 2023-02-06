@@ -203,6 +203,7 @@ void PrimaryMirrorControl::pingMirrorControlStateMachine()
         CLEAR_DEBUG_PIN();
         if (moveCompleteFlag)
         {
+            cli->printDebugMessage("Move complete.");
             currentMoveState = MOVE_COMPLETE;
         }
         else
@@ -281,7 +282,11 @@ void PrimaryMirrorControl::enableControlInterrupt()
 // Functions to update necessary control variables
 void PrimaryMirrorControl::copyShadowToActive()
 {
+    // if (focusUpdated)
+    //     cli->printfDebugMessage("Focus shadow: %.2f", ShadowCommandStates_Eng.FOCUS_POS_MM);
     CommandStates_Eng = ShadowCommandStates_Eng;
+    // if (focusUpdated)
+    //     cli->printfDebugMessage("Focus active: %.2f", CommandStates_Eng.FOCUS_POS_MM);
 }
 
 void PrimaryMirrorControl::setControlMode(uint8_t mode)
@@ -289,7 +294,7 @@ void PrimaryMirrorControl::setControlMode(uint8_t mode)
     controlMode = mode;
 }
 
-void PrimaryMirrorControl::setTipTarget(double tgt_urad)
+void PrimaryMirrorControl::setTipTarget(double tgt_as)
 {
     double tgt_rad_presat;
     if (controlMode == PMC::RELATIVE)
@@ -297,7 +302,7 @@ void PrimaryMirrorControl::setTipTarget(double tgt_urad)
         if (currentMoveState != MOVE_IN_PROGRESS)
         {
             // See comments in setFocusTarget
-            tgt_rad_presat = ShadowCommandStates_Eng.TIP_POS_RAD + (tgt_urad * RAD_PER_URAD);
+            tgt_rad_presat = ShadowCommandStates_Eng.tip() + (tgt_as * RAD_PER_AS);
             tipUpdated = true;
         }
         else
@@ -307,16 +312,18 @@ void PrimaryMirrorControl::setTipTarget(double tgt_urad)
     }
     else
     {
-        tgt_rad_presat = (tgt_urad * RAD_PER_URAD);
+        tgt_rad_presat = (tgt_as * RAD_PER_AS);
         tipUpdated = true;
     }
     // cli->printfDebugMessage("TIP UPDATE: %.8f", tgt_rad_presat * URAD_PER_RAD);
-    // TODO: Add angle saturation to limit command to mechanical range.
     if (tipUpdated)
-        ShadowCommandStates_Eng.TIP_POS_RAD = tgt_rad_presat;
+    {
+        // TODO: Add angle saturation to limit command to mechanical range.
+        ShadowCommandStates_Eng.setTip(tgt_rad_presat);
+    }
 }
 
-void PrimaryMirrorControl::setTiltTarget(double tgt_urad)
+void PrimaryMirrorControl::setTiltTarget(double tgt_as)
 {
     double tgt_rad_presat;
     if (controlMode == PMC::RELATIVE)
@@ -325,7 +332,7 @@ void PrimaryMirrorControl::setTiltTarget(double tgt_urad)
         {
             tiltUpdated = true;
             // See comments in setFocusTarget
-            tgt_rad_presat = ShadowCommandStates_Eng.TILT_POS_RAD + (tgt_urad * RAD_PER_URAD);
+            tgt_rad_presat = ShadowCommandStates_Eng.tilt() + (tgt_as * RAD_PER_AS);
         }
         else
         {
@@ -335,12 +342,14 @@ void PrimaryMirrorControl::setTiltTarget(double tgt_urad)
     else
     {
         tiltUpdated = true;
-        tgt_rad_presat = (tgt_urad * RAD_PER_URAD);
+        tgt_rad_presat = (tgt_as * RAD_PER_AS);
     }
     // cli->printfDebugMessage("TILT UPDATE: %.8f", tgt_rad_presat* URAD_PER_RAD);
-    // TODO: Add angle saturation to limit command to mechanical range.
     if (tiltUpdated)
-        ShadowCommandStates_Eng.TILT_POS_RAD = tgt_rad_presat;
+    {
+        // TODO: Add angle saturation to limit command to mechanical range.
+        ShadowCommandStates_Eng.setTilt(tgt_rad_presat);
+    }
 }
 
 void PrimaryMirrorControl::setFocusTarget(double tgt_um)
@@ -354,7 +363,7 @@ void PrimaryMirrorControl::setFocusTarget(double tgt_um)
             // I need to finish getting the motor->tip/tilt/focus transforms correct
             // So we can see what the current position is before adding to it.
             // For now, relative commands will only get processed if there is no move in progress.
-            focus_tgt_presat = ShadowCommandStates_Eng.FOCUS_POS_MM + tgt_um;
+            focus_tgt_presat = ShadowCommandStates_Eng.focus() + tgt_um;
             focusUpdated = true;
         }
         else
@@ -369,11 +378,10 @@ void PrimaryMirrorControl::setFocusTarget(double tgt_um)
     }
     if (focusUpdated)
     {
-        // double focus_tgt_post_sat = saturate(focus_tgt_presat, MIN_STROKE_MICRON, MAX_STROKE_MICRON);
-        // ShadowCommandStates_Eng.FOCUS_POS_MM = focus_tgt_post_sat;
-        ShadowCommandStates_Eng.FOCUS_POS_MM = focus_tgt_presat;
+        ShadowCommandStates_Eng.setFocus(focus_tgt_presat);
+        // ShadowCommandStates_Eng.FOCUS_POS_MM = focus_tgt_presat;
+        // cli->printfDebugMessage("TargetFocus = %6.4f", CommandStates_Eng.focus());
     }
-    // cli->printfDebugMessage("TargetFocus = %6.4f", CommandStates_Eng.FOCUS_POS_MM);
 }
 
 // Set the fan speed to a percentage S of full scale
@@ -411,124 +419,86 @@ void PrimaryMirrorControl::updateStepperCommands()
     A_cmdSteps = 0;
     B_cmdSteps = 0;
     C_cmdSteps = 0;
-    CommandStates_Eng.getMotorPosnCommands(&A_cmdSteps, &B_cmdSteps, &C_cmdSteps);
 
-#if ENABLE_TERMINAL_UPDATES
-    cli->printfDebugMessage("Step Commands: [A/B/C]: %d, %d, %d", A_cmdSteps, B_cmdSteps, C_cmdSteps);
-#endif
+    // #if ENABLE_TERMINAL_UPDATES
+    //     cli->printfDebugMessage("Command update [t/t/f]: %.2f, %.2f, %.2f", CommandStates_Eng.TIP_POS_RAD, CommandStates_Eng.TILT_POS_RAD, CommandStates_Eng.FOCUS_POS_MM);
+    // #endif
+    CommandStates_Eng.getMotorPosnCommands(&A_cmdSteps, &B_cmdSteps, &C_cmdSteps);
     long stepperCmdVector[3]{A_cmdSteps, B_cmdSteps, C_cmdSteps};
     steppers.moveTo(stepperCmdVector);
-
     updateCommandFields();
 }
 
 bool PrimaryMirrorControl::pingSteppers()
 {
     bool moveCompleteFlag = false;
-
-    // multistepper run function returns true if any of the motors are still moving
     if (!steppers.run())
     {
+#if ENABLE_TERMINAL_UPDATES
+
+#endif
         moveCompleteFlag = true;
+    }
+    else
+    {
+        // cli->printDebugMessage("Move in progress.");
     }
     return moveCompleteFlag;
 }
 bool PrimaryMirrorControl::pingHomingRoutine()
 {
-    static uint32_t waitStartCount = 0;
-    uint32_t waitCounter = 0;
-
     bool homingComplete = false;
     static HOMING_STATE prevHomingState = INITIALIZE;
+    long homingStep1Cmds[3]{-2*FULL_STROKE_STEPS, -2*FULL_STROKE_STEPS, -2*FULL_STROKE_STEPS};
+    long homingStep2Cmds[3]{0, 0, 0};
+
     switch (currentHomingState)
     {
     case INITIALIZE:
         limitFound_A = false;
         limitFound_B = false;
         limitFound_C = false;
-        Stepper_A.setSpeed(-homingSpeedStepsPerSec);
-        Stepper_B.setSpeed(-homingSpeedStepsPerSec);
-        Stepper_C.setSpeed(-homingSpeedStepsPerSec);
+        steppers.moveTo(homingStep1Cmds);
         currentHomingState = HOMING_STEP_1;
         updateStatusFields();
         break;
     case HOMING_STEP_1:
-        // Quick move until all endstops are hit
-        if (!limitFound_A)
-            Stepper_A.runSpeed();
-        if (!limitFound_B)
-            Stepper_B.runSpeed();
-        if (!limitFound_C)
-            Stepper_C.runSpeed();
-        // delay(1);
-        if (limitFound_A && limitFound_B && limitFound_C)
+        // Move until bottomFound message is sent from GUI
+        if (!steppers.run())
         {
-            saveStepperPositionsToNVRAM();
-            currentHomingState = HOMING_STEP_2;
-            waitStartCount = millis();
-            updateStatusFields();
+            // TODO: Something is wrong
         }
+        // updateStatusFields();
         break;
     case HOMING_STEP_2:
-        // Short pause
-        waitCounter = millis();
-        if ((waitCounter - waitStartCount) > 1000)
-            currentHomingState = HOMING_STEP_3;
+        // Bottom found
+        Stepper_A.setCurrentPosition(STROKE_BOTTOM_STEPS);
+        Stepper_B.setCurrentPosition(STROKE_BOTTOM_STEPS);
+        Stepper_C.setCurrentPosition(STROKE_BOTTOM_STEPS);
+        this->saveStepperPositionsToNVRAM();
+        steppers.moveTo(homingStep2Cmds);
+        currentHomingState = HOMING_STEP_3;
         break;
+
     case HOMING_STEP_3:
-        // Short Move forward until endstops are cleared
-        if (Stepper_A.currentPosition() < (STROKE_BOTTOM_STEPS + STEPS_PER_MM))
+        // Return to middle of travel
+
+        if (!steppers.run())
         {
-            Stepper_A.runSpeed();
-            Stepper_B.runSpeed();
-            Stepper_C.runSpeed();
-        }
-        else
-        {
-            if ((digitalRead(A_LIMIT_SW_PIN)) == HIGH &&
-                (digitalRead(B_LIMIT_SW_PIN)) == HIGH &&
-                (digitalRead(C_LIMIT_SW_PIN)) == HIGH)
-            {
-                limitFound_A = false;
-                limitFound_B = false;
-                limitFound_C = false;
-                enableLimitSwitchInterrupts();
-                currentHomingState = HOMING_STEP_4;
-                waitStartCount = millis();
-                updateStatusFields();
-            }
-        }
-        break;
-    case HOMING_STEP_4:
-        // Shorter pause
-        waitCounter = millis();
-        if ((waitCounter - waitStartCount) > 300)
-        {
-            Stepper_A.setSpeed(homingSpeedStepsPerSec * -0.1);
-            Stepper_B.setSpeed(homingSpeedStepsPerSec * -0.1);
-            Stepper_C.setSpeed(homingSpeedStepsPerSec * -0.1);
-            currentHomingState = HOMING_STEP_5;
-        }
-        break;
-    case HOMING_STEP_5:
-        // Very slow move backwards until endstops are hit again
-        if (!limitFound_A)
-            Stepper_A.runSpeed();
-        if (!limitFound_B)
-            Stepper_B.runSpeed();
-        if (!limitFound_C)
-            Stepper_C.runSpeed();
-        // delay(1);
-        if (limitFound_A && limitFound_B && limitFound_C)
-        {
-            enableLimitSwitchInterrupts();
-            saveStepperPositionsToNVRAM();
+#if ENABLE_TERMINAL_UPDATES
+
+#endif
             if (homeNotifierFlagPtr != nullptr)
                 *homeNotifierFlagPtr = true;
             ShadowCommandStates_Eng.resetToHomed();
             CommandStates_Eng.resetToHomed();
-
+            // this->resetPositionsInNVRAM();
             homingComplete = true;
+        }
+        else
+        {
+            // cli->printDebugMessage("still trying...");
+            homingComplete = false;
         }
         break;
     }
@@ -562,12 +532,20 @@ void PrimaryMirrorControl::enableSteppers(bool doEnable)
 // Move all actuators to home positions at velocity V (steps/sec)
 void PrimaryMirrorControl::goHome(volatile double homingSpeed)
 {
-
-    homingSpeedStepsPerSec = (homingSpeed * MIRROR_RADIUS) / (MICRON_PER_STEP);
+    homingSpeedStepsPerSec = (homingSpeed * MIRROR_RADIUS) / (UM_PER_STEP);
     currentMoveState = HOMING_IS_ACTIVE;
     currentHomingState = INITIALIZE;
     controlMode = PMC::RELATIVE;
 }
+
+void PrimaryMirrorControl::bottomFound()
+{
+    if (currentMoveState == HOMING_IS_ACTIVE && currentHomingState == HOMING_STEP_1)
+    {
+        currentHomingState = HOMING_STEP_2;
+    }
+}
+
 void PrimaryMirrorControl::limitSwitchHandler(uint16_t motor)
 {
     // For de-bounce
@@ -637,23 +615,23 @@ void PrimaryMirrorControl::saveStepperPositionsToNVRAM()
     EEPROM.put(NVRAM_ADDR_STEPPER_C_POS, Cposition);
 #endif
 #if FRAM_ENABLED
-    fram.write32(NVRAM_ADDR_STEPPER_A_POS,Aposition);
-    fram.write32(NVRAM_ADDR_STEPPER_B_POS,Bposition);
-    fram.write32(NVRAM_ADDR_STEPPER_C_POS,Cposition);
+    fram.write32(NVRAM_ADDR_STEPPER_A_POS, Aposition);
+    fram.write32(NVRAM_ADDR_STEPPER_B_POS, Bposition);
+    fram.write32(NVRAM_ADDR_STEPPER_C_POS, Cposition);
 #endif
 }
 
-void PrimaryMirrorControl::resetPositionsInNVRAM()
+void PrimaryMirrorControl::resetPositionsInNVRAM(uint32_t A_pos, uint32_t B_pos, uint32_t C_pos)
 {
 #if EEPROM_ENABLED
-    EEPROM.put(NVRAM_ADDR_STEPPER_A_POS, 0);
-    EEPROM.put(NVRAM_ADDR_STEPPER_B_POS, 0);
-    EEPROM.put(NVRAM_ADDR_STEPPER_C_POS, 0);
+    EEPROM.put(NVRAM_ADDR_STEPPER_A_POS, A_pos);
+    EEPROM.put(NVRAM_ADDR_STEPPER_B_POS, B_pos);
+    EEPROM.put(NVRAM_ADDR_STEPPER_C_POS, C_pos);
 #endif
 #if FRAM_ENABLED
-    fram.write32(NVRAM_ADDR_STEPPER_A_POS,0);
-    fram.write32(NVRAM_ADDR_STEPPER_B_POS,0);
-    fram.write32(NVRAM_ADDR_STEPPER_C_POS,0);
+    fram.write32(NVRAM_ADDR_STEPPER_A_POS, A_pos);
+    fram.write32(NVRAM_ADDR_STEPPER_B_POS, B_pos);
+    fram.write32(NVRAM_ADDR_STEPPER_C_POS, C_pos);
 #endif
     cli->printDebugMessage("Resetting positions in NVRAM", LFAST::WARNING_MESSAGE);
 }
@@ -731,16 +709,10 @@ void PrimaryMirrorControl::updateStatusFields()
             cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 1 (QUICK REVERSE)");
             break;
         case HOMING_STEP_2:
-            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 2 (PAUSE)");
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 2 (BOTTOM FOUND)");
             break;
         case HOMING_STEP_3:
-            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 3 (SHORT FORWARD)");
-            break;
-        case HOMING_STEP_4:
-            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 4 (PAUSE)");
-            break;
-        case HOMING_STEP_5:
-            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 5 (SLOW REVERSE)");
+            cli->updatePersistentField(DeviceName, MOVE_SM_STATE_ROW, "HOMING 3 (RETURN TO MIDDLE)");
             break;
         }
 
@@ -765,9 +737,9 @@ void PrimaryMirrorControl::updateStatusFields()
 void PrimaryMirrorControl::updateCommandFields()
 {
 #if ENABLE_TERMINAL_UPDATES
-    cli->updatePersistentField(DeviceName, TIP_CMD_ROW, CommandStates_Eng.TIP_POS_RAD * URAD_PER_RAD, "%.10f urad");
-    cli->updatePersistentField(DeviceName, TILT_CMD_ROW, CommandStates_Eng.TILT_POS_RAD * URAD_PER_RAD, "%.10f urad");
-    cli->updatePersistentField(DeviceName, FOCUS_CMD_ROW, CommandStates_Eng.FOCUS_POS_MM, "%.10f um");
+    cli->updatePersistentField(DeviceName, TIP_CMD_ROW, CommandStates_Eng.tip() * RAD_PER_AS*.001, "%.10f urad");
+    cli->updatePersistentField(DeviceName, TILT_CMD_ROW, CommandStates_Eng.tilt() * RAD_PER_AS*.001, "%.10f urad");
+    cli->updatePersistentField(DeviceName, FOCUS_CMD_ROW, CommandStates_Eng.focus() * UM_PER_MM, "%.10f um");
 #endif
 }
 
@@ -783,8 +755,8 @@ void PrimaryMirrorControl::updateFeedbackFields()
     cli->updatePersistentField(DeviceName, STEPPER_A_FB, aPos);
     cli->updatePersistentField(DeviceName, STEPPER_B_FB, bPos);
     cli->updatePersistentField(DeviceName, STEPPER_C_FB, cPos);
-    cli->updatePersistentField(DeviceName, TIP_FB_ROW, tipEst * URAD_PER_RAD, "%.10f urad");
-    cli->updatePersistentField(DeviceName, TILT_FB_ROW, tiltEst * URAD_PER_RAD, "%.10f urad");
+    cli->updatePersistentField(DeviceName, TIP_FB_ROW, tipEst * RAD_PER_AS*.001, "%.10f urad");
+    cli->updatePersistentField(DeviceName, TILT_FB_ROW, tiltEst * RAD_PER_AS*.001, "%.10f urad");
     // cli->updatePersistentField(DeviceName, FOCUS_FB_ROW, focusEst);
 #endif
 }

@@ -55,31 +55,41 @@ Stop() – Immediately stops all motion
 constexpr double MICROSTEP_DIVIDER = 16;
 constexpr double MICROSTEP_RATIO = 1.0 / MICROSTEP_DIVIDER;
 
-constexpr double MIRROR_RADIUS_MICRONS = 281880.0;          // Radius of mirror actuator positions in um
-constexpr double MICRON_PER_STEP = 3.175 * MICROSTEP_RATIO; // conversion factor of stepper motor steps to vertical movement in um
-constexpr double STEPS_PER_MICRON = 1.0 / MICRON_PER_STEP;
-constexpr double STEPS_PER_MM = STEPS_PER_MICRON * 1000;
-constexpr double MM_PER_STEP = 1.0 / STEPS_PER_MM;
+constexpr double MIRROR_RADIUS_UM = 281288.0;          // Radius of mirror actuator positions in um
+constexpr double UM_PER_STEP = 0.2;//3.175 * MICROSTEP_RATIO; // (rounded!) conversion factor of stepper motor steps to vertical movement in um
+constexpr double STEPS_PER_UM = 1.0 / UM_PER_STEP;
 
-constexpr double STROKE_MICRON = 12700.0;
-constexpr double MAX_STROKE_MICRON = (0.5 * STROKE_MICRON);
-constexpr double MIN_STROKE_MICRON = (-0.5 * STROKE_MICRON);
-constexpr double STROKE_STEPS = (uint32_t)(STROKE_MICRON / MICRON_PER_STEP); // 4000*MICROSTEP_DIVIDER
-constexpr double STROKE_BOTTOM_STEPS = (-0.5 * STROKE_STEPS);
-constexpr double STROKE_TOP_STEPS = (0.5 * STROKE_STEPS);
-constexpr double STROKE_BOTTOM_MICRON = STROKE_BOTTOM_STEPS * MICRON_PER_STEP;
+constexpr double FULL_STROKE_UM = 12700.0;
+constexpr double MAX_STROKE_UM = (0.5 * FULL_STROKE_UM);
+constexpr double MIN_STROKE_UM = (-0.5 * FULL_STROKE_UM);
+constexpr long int FULL_STROKE_STEPS = (long int)(FULL_STROKE_UM / UM_PER_STEP); // 4000*MICROSTEP_DIVIDER
+constexpr long int STROKE_TOP_STEPS = (FULL_STROKE_STEPS/2);
+constexpr long int STROKE_BOTTOM_STEPS = (-1  * STROKE_TOP_STEPS);
+constexpr double STROKE_BOTTOM_UM = ((double)STROKE_BOTTOM_STEPS * UM_PER_STEP);
 
-constexpr double URAD_PER_RAD = 1000000.0;
-constexpr double RAD_PER_URAD = 1.0 / URAD_PER_RAD;
+constexpr double AS_PER_RAD = 648000/M_PI;
+constexpr double RAD_PER_AS = 1.0/AS_PER_RAD;
 
-// Mirror coeffs assume millimeters!!
-const double MIRROR_MATH_COEFF_0 = 281.3;
-const double MIRROR_MATH_COEFF_1 = -140.6;
-const double MIRROR_MATH_COEFF_2 = 243.6;
+
+// Mirror coeffs assume microns!!
+const double MIRROR_MATH_COEFF_0 = 281300;
+const double MIRROR_MATH_COEFF_1 = -140600;
+const double MIRROR_MATH_COEFF_2 = 243600;
 // Units don't matter for motor math coeffs.
 const double MOTOR_MATH_COEFF_0 = 0.001185025075130589607;
 const double MOTOR_MATH_COEFF_1 = 0.00205252363836930761;
 const double MOTOR_MATH_COEFF_2 = 1.0;
+
+
+constexpr double UM_PER_MM = 1000.0;
+constexpr double MM_PER_UM = 1.0/UM_PER_MM;
+
+// NOTE!! These should be +/- 1.0mm, but useful to make bigger for debugging.
+constexpr double FOCUS_MAX_UM = 1.0 * UM_PER_MM;
+
+constexpr double TIP_TILT_STROKE_UM = (FULL_STROKE_UM * 0.5) - FOCUS_MAX_UM;
+constexpr double TIP_TILT_MAX_RAD = 0.019017359518293;//atan2(TIP_TILT_STROKE_UM, MIRROR_RADIUS_UM);
+// constexpr double TIP_TILT_MAX_DEG = 180/M_PI*TIP_TILT_MAX_RAD;
 
 // PM Control functions
 enum PRIMARY_MIRROR_ROWS
@@ -192,83 +202,71 @@ public:
 class MirrorStates
 {
 private:
+    volatile double _TIP_POS_RAD;
+    volatile double _TILT_POS_RAD;
+    volatile double _FOCUS_POS_UM;
 public:
     MirrorStates &operator=(MirrorStates const &other)
     {
         noInterrupts();
-        TIP_POS_RAD = other.TIP_POS_RAD;
-        TILT_POS_RAD = other.TILT_POS_RAD;
-        FOCUS_POS_MM = other.FOCUS_POS_MM;
+        _TIP_POS_RAD = other._TIP_POS_RAD;
+        _TILT_POS_RAD = other._TILT_POS_RAD;
+        _FOCUS_POS_UM = other._FOCUS_POS_UM;
         interrupts();
         return *this;
     }
 
-    volatile double TIP_POS_RAD;
-    volatile double TILT_POS_RAD;
-    volatile double FOCUS_POS_MM;
 
+    bool setTip(double _tipTgt_rad)
+    {
+        double tipTgt_sat = constrain(_tipTgt_rad, -TIP_TILT_MAX_RAD, TIP_TILT_MAX_RAD);
+        _TIP_POS_RAD = tipTgt_sat;
+        return (_tipTgt_rad != tipTgt_sat);
+    }
+    bool setTilt(double _tiltTgt_rad)
+    {
+        double tiltTgt_sat = constrain(_tiltTgt_rad, -TIP_TILT_MAX_RAD, TIP_TILT_MAX_RAD);
+        _TILT_POS_RAD = tiltTgt_sat;
+        return (_tiltTgt_rad != tiltTgt_sat);
+    }
+    bool setFocus(double _focusTgt_um)
+    {
+        double focusTgt_sat = constrain(_focusTgt_um, -FOCUS_MAX_UM, FOCUS_MAX_UM);
+        _FOCUS_POS_UM = focusTgt_sat;
+        return (_focusTgt_um != focusTgt_sat);
+    }
+
+    double tip() {return _TIP_POS_RAD;}
+    double tilt() {return _TILT_POS_RAD;}
+    double focus() {return _FOCUS_POS_UM;}
     bool getMotorPosnCommands(int32_t *a_steps, int32_t *b_steps, int32_t *c_steps) const
     {
 
-        double tanAlpha = std::tan(TIP_POS_RAD);
-        double cosAlpha = std::cos(TIP_POS_RAD);
-        double tanBeta = std::tan(TILT_POS_RAD);
-        double gamma = FOCUS_POS_MM;
+        double tanAlpha = std::tan(_TIP_POS_RAD);
+        double cosAlpha = std::cos(_TIP_POS_RAD);
+        double tanBeta = std::tan(_TILT_POS_RAD);
+        double gamma = _FOCUS_POS_UM;
 
         constexpr double c[3]{MIRROR_MATH_COEFF_0, MIRROR_MATH_COEFF_1, MIRROR_MATH_COEFF_2};
         double a_distance = gamma + (c[0] * tanAlpha);
         double b_distance = gamma + (c[1] * tanAlpha + c[2] * tanBeta / cosAlpha);
         double c_distance = gamma + (c[1] * tanAlpha - c[2] * tanBeta / cosAlpha);
 
-        int32_t a_steps_presat = (int32_t)(a_distance * STEPS_PER_MM);
-        int32_t b_steps_presat = (int32_t)(b_distance * STEPS_PER_MM);
-        int32_t c_steps_presat = (int32_t)(c_distance * STEPS_PER_MM);
-
-        // constexpr int32_t stroke_ulim = STROKE_STEPS / 2;
-        // constexpr int32_t stroke_llim = -1 * stroke_ulim;
-
-        // int32_t a_steps_postsat = saturate(a_steps_presat, stroke_llim, stroke_ulim);
-        // int32_t b_steps_postsat = saturate(b_steps_presat, stroke_llim, stroke_ulim);
-        // int32_t c_steps_postsat = saturate(c_steps_presat, stroke_llim, stroke_ulim);
-
-        // int32_t a_diff = a_steps_presat - a_steps_postsat;
-        // int32_t b_diff = b_steps_presat - b_steps_postsat;
-        // int32_t c_diff = c_steps_presat - c_steps_postsat;
-
-        // int32_t max_diff = std::max({a_diff, b_diff, c_diff});
-
-        bool saturationFlag = false;
-        // if (std::abs(max_diff) > 0)
-        // {
-        //     *a_steps = a_steps_postsat - max_diff;
-        //     *b_steps = b_steps_postsat - max_diff;
-        //     *c_steps = c_steps_postsat - max_diff;
-        //     saturationFlag = true;
-        // }
-        // else
-        // {
-        //     *a_steps = a_steps_presat;
-        //     *b_steps = b_steps_presat;
-        //     *c_steps = c_steps_presat;
-        // }
-
+        int32_t a_steps_presat = (int32_t)(a_distance * STEPS_PER_UM) ;
+        int32_t b_steps_presat = (int32_t)(b_distance * STEPS_PER_UM);
+        int32_t c_steps_presat = (int32_t)(c_distance * STEPS_PER_UM);
+        
         *a_steps = a_steps_presat;
         *b_steps = b_steps_presat;
         *c_steps = c_steps_presat;
 
-        return saturationFlag;
-    }
-    void resetToZero()
-    {
-        TIP_POS_RAD = 0.0;
-        TILT_POS_RAD = 0.0;
-        FOCUS_POS_MM = 0.0;
+        return 0;
     }
     void resetToHomed()
     {
-        TIP_POS_RAD = 0.0;
-        TILT_POS_RAD = 0.0;
-        FOCUS_POS_MM = STROKE_BOTTOM_MICRON;
+        _TIP_POS_RAD = 0.0;
+        _TILT_POS_RAD = 0.0;
+        _FOCUS_POS_UM = 0.0;
     }
 };
 
@@ -292,12 +290,13 @@ public:
     void setTiltTarget(double tgt);
     void setFocusTarget(double tgt);
     void goHome(volatile double homeSpeed);
+    void bottomFound();
     void stopNow();
     bool getStatus(uint8_t motor);
     double getStepperPosition(uint8_t motor);
 
     void saveStepperPositionsToNVRAM();
-    void resetPositionsInNVRAM();
+    void resetPositionsInNVRAM(uint32_t A_pos = 0, uint32_t B_pos = 0, uint32_t C_pos = 0);
     void loadCurrentPositionsFromNVRAM();
     void enableControlInterrupt();
     void setMoveNotifierFlag(volatile bool *flagPtr);
@@ -354,10 +353,8 @@ private:
     {
         INITIALIZE,
         HOMING_STEP_1, // Quick move until all endstops are hit
-        HOMING_STEP_2, // Short pause
-        HOMING_STEP_3, // Short Move forward until endstops are cleared
-        HOMING_STEP_4, // Shorter pause
-        HOMING_STEP_5  // Very slow move backwards until endstops are hit again
+        HOMING_STEP_2, // BOTTOM FOUND
+        HOMING_STEP_3, // RETURN TO MIDDLE
     } HOMING_STATE;
     HOMING_STATE currentHomingState;
 

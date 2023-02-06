@@ -59,10 +59,11 @@ fanSpeed Control function
 void handshake(unsigned int val);
 void moveType(unsigned int type);
 void velUnits(unsigned int targetUnits);
-void home(double v);
+void startHoming(double v);
+void strokeBottomFound(bool isFound);
 void changeVel(double targetVel);
-void changeTip(double targetTip);
-void changeTilt(double targetTilt);
+void changeTip(double targetTip_as);
+void changeTilt(double targetTilt_as);
 void changeFocus(double targetFocus);
 
 void getStatus(double lst);
@@ -133,7 +134,8 @@ void setup()
 
   commsService->registerMessageHandler<unsigned int>("Handshake", handshake);
   commsService->registerMessageHandler<unsigned int>("MoveType", moveType);
-  commsService->registerMessageHandler<double>("FindHome", home);
+  commsService->registerMessageHandler<double>("FindHome", startHoming);
+  commsService->registerMessageHandler<bool>("BottomFound", strokeBottomFound);
   commsService->registerMessageHandler<double>("SetTip", changeTip);
   commsService->registerMessageHandler<double>("SetTilt", changeTilt);
   commsService->registerMessageHandler<double>("SetFocus", changeFocus);
@@ -145,7 +147,7 @@ void setup()
 
   delay(500);
   pPmc->initializeNVRAM();
-  pPmc->resetPositionsInNVRAM();
+  // pPmc->resetPositionsInNVRAM();
 
   pPmc->setMoveNotifierFlag(&moveCompleteFlag);
   pPmc->setHomingCompleteNotifierFlag(&homingCompleteFlag);
@@ -187,9 +189,6 @@ void loop()
     LFAST::CommsMessage newMsg;
     newMsg.addKeyValuePair<bool>("MoveComplete", true);
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
-#if ENABLE_TERMINAL_UPDATES
-    cli->printDebugMessage("Move Complete.");
-#endif
     moveCompleteFlag = false;
   }
   if (homingCompleteFlag)
@@ -229,35 +228,38 @@ void moveType(unsigned int type)
   // interrupts();
 }
 
-void home(double v)
+void startHoming(double v)
 {
   pPmc->goHome(v);
   LFAST::CommsMessage newMsg;
   newMsg.addKeyValuePair<std::string>("FindHome", "$OK^");
   commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
 }
-
-void changeTip(double targetTip)
+void strokeBottomFound(bool isFound)
+{
+  pPmc->bottomFound();
+}
+void changeTip(double targetTip_as)
 {
   // no_interrupts();
   if (pPmc->isEnabled())
-    pPmc->setTipTarget(targetTip);
+    pPmc->setTipTarget(targetTip_as);
   // interrupts();
 }
 
-void changeTilt(double targetTilt)
+void changeTilt(double targetTilt_as)
 {
   // no_interrupts();
   if (pPmc->isEnabled())
-    pPmc->setTiltTarget(targetTilt);
+    pPmc->setTiltTarget(targetTilt_as);
   // interrupts();
 }
 
-void changeFocus(double targetFocus)
+void changeFocus(double targetFocus_um)
 {
   // no_interrupts();
   if (pPmc->isEnabled())
-    pPmc->setFocusTarget(targetFocus);
+    pPmc->setFocusTarget(targetFocus_um);
   // interrupts();
 }
 
