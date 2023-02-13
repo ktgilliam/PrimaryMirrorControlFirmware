@@ -73,7 +73,7 @@ constexpr double RAD_PER_AS = 1.0/AS_PER_RAD;
 
 // Mirror coeffs assume microns!!
 const double MIRROR_MATH_COEFF_0 = 281300;
-const double MIRROR_MATH_COEFF_1 = -140600;
+const double MIRROR_MATH_COEFF_1 = 140600;
 const double MIRROR_MATH_COEFF_2 = 243600;
 // Units don't matter for motor math coeffs.
 const double MOTOR_MATH_COEFF_0 = 0.001185025075130589607;
@@ -85,7 +85,7 @@ constexpr double UM_PER_MM = 1000.0;
 constexpr double MM_PER_UM = 1.0/UM_PER_MM;
 
 // NOTE!! These should be +/- 1.0mm, but useful to make bigger for debugging.
-constexpr double FOCUS_MAX_UM = 1.0 * UM_PER_MM;
+constexpr double FOCUS_MAX_UM = 6.35 * UM_PER_MM;
 
 constexpr double TIP_TILT_STROKE_UM = (FULL_STROKE_UM * 0.5) - FOCUS_MAX_UM;
 constexpr double TIP_TILT_MAX_RAD = 0.019017359518293;//atan2(TIP_TILT_STROKE_UM, MIRROR_RADIUS_UM);
@@ -239,6 +239,7 @@ public:
     double tip() {return _TIP_POS_RAD;}
     double tilt() {return _TILT_POS_RAD;}
     double focus() {return _FOCUS_POS_UM;}
+
     bool getMotorPosnCommands(int32_t *a_steps, int32_t *b_steps, int32_t *c_steps) const
     {
 
@@ -248,9 +249,9 @@ public:
         double gamma = _FOCUS_POS_UM;
 
         constexpr double c[3]{MIRROR_MATH_COEFF_0, MIRROR_MATH_COEFF_1, MIRROR_MATH_COEFF_2};
-        double a_distance = gamma + (c[0] * tanAlpha);
-        double b_distance = gamma + (c[1] * tanAlpha + c[2] * tanBeta / cosAlpha);
-        double c_distance = gamma + (c[1] * tanAlpha - c[2] * tanBeta / cosAlpha);
+        double a_distance = gamma - (c[0] * tanBeta) / cosAlpha;
+        double b_distance = gamma + (c[2] * tanAlpha + c[1] * tanBeta / cosAlpha);
+        double c_distance = gamma - (c[2] * tanAlpha + c[1] * tanBeta / cosAlpha);
 
         int32_t a_steps_presat = (int32_t)(a_distance * STEPS_PER_UM) ;
         int32_t b_steps_presat = (int32_t)(b_distance * STEPS_PER_UM);

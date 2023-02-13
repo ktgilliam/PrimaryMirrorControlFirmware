@@ -488,6 +488,10 @@ bool PrimaryMirrorControl::pingHomingRoutine()
 #if ENABLE_TERMINAL_UPDATES
 
 #endif
+        Stepper_A.setCurrentPosition(0);
+        Stepper_B.setCurrentPosition(0);
+        Stepper_C.setCurrentPosition(0);
+        this->saveStepperPositionsToNVRAM();
             if (homeNotifierFlagPtr != nullptr)
                 *homeNotifierFlagPtr = true;
             ShadowCommandStates_Eng.resetToHomed();
