@@ -83,40 +83,12 @@ volatile bool moveCompleteFlag = false;
 volatile bool homingCompleteFlag = false;
 volatile bool handShookFlag = false;
 
-#define WATCHDOG_ENABLED 1
-WDT_T4<WDT1> wdt;
-bool wdt_ready = false;
-void watchdogWarning()
-{
-  if (cli != nullptr)
-  {
-    cli->printDebugMessage("Danger - feed the dog!", LFAST::WARNING_MESSAGE);
-  }
-}
-void configureWatchdog()
-{
-  if (cli != nullptr)
-  {
-    cli->printDebugMessage("Starting watchdog");
-  }
-  WDT_timings_t config;
-  config.trigger = 5;  /* in seconds, 0->128 */
-  config.timeout = 10; /* in seconds, 0->128 */
-  config.callback = watchdogWarning;
-  config.pin = LED_PIN;
-  pinMode(LED_PIN, OUTPUT);
-#if WATCHDOG_ENABLED
-  wdt_ready = true;
-  wdt.begin(config);
-#endif
-}
-
 void setup()
 {
   PrimaryMirrorControl &pmc = PrimaryMirrorControl::getMirrorController();
   pPmc = &pmc;
   commsService = new LFAST::TcpCommsService(myIP);
-  cli = new TerminalInterface(PMC_LABEL, &(TEST_SERIAL), TEST_SERIAL_BAUD);
+  cli = new TerminalInterface(DEVICE_CLI_LABEL, &(TEST_SERIAL), TEST_SERIAL_BAUD);
   commsService->connectTerminalInterface(cli, "Comms");
   pPmc->connectTerminalInterface(cli, "pmc");
   cli->printPersistentFieldLabels();
@@ -153,6 +125,7 @@ void setup()
   pPmc->setHomingCompleteNotifierFlag(&homingCompleteFlag);
 
   pPmc->loadCurrentPositionsFromNVRAM();
+  configureWatchdog();
   cli->printDebugMessage("Initialization complete");
   // cli->printDebugMessage(DEBUG_CODE_ID_STR);
 
@@ -165,15 +138,14 @@ void setup()
       ;
     }
   }
+
 }
 
 void loop()
 {
 #if WATCHDOG_ENABLED
-  if (wdt_ready)
-    wdt.feed();
+  feedWatchDog();
 #endif
-
   commsService->checkForNewClients();
   if (commsService->checkForNewClientData())
   {
@@ -213,8 +185,7 @@ void handshake(unsigned int val)
     newMsg.addKeyValuePair<unsigned int>("Handshake", 0xBEEF);
     commsService->sendMessage(newMsg, LFAST::CommsService::ACTIVE_CONNECTION);
     cli->printDebugMessage("Connected to client, starting control ISR.");
-    if (!wdt_ready)
-      configureWatchdog();
+
     pPmc->enableControlInterrupt();
     handShookFlag = true;
   }

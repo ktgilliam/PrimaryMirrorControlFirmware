@@ -24,8 +24,6 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 #ifndef PRIMARY_MIRROR_GLOBAL_H
 #define PRIMARY_MIRROR_GLOBAL_H
 
-#define PMC_LABEL "LFAST PRIMARY MIRROR CONTROL"
-
 //#define TEENSY41
 
 #define A_STEP 2
